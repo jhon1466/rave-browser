@@ -221,6 +221,7 @@ function setupPaneListeners(state, tabId, side) {
   wc.removeAllListeners('found-in-page');
   wc.removeAllListeners('context-menu');
   wc.removeAllListeners('focus');
+  wc.removeAllListeners('input-event');
 
   // Registrar nuevos
   const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id: tabId, ...fields });
@@ -279,6 +280,18 @@ function setupPaneListeners(state, tabId, side) {
       notifyTabUpdated(state, tabId, wc);
     }
   });
+
+  // Escuchar clics para cambiar el foco de forma robusta en Electron
+  wc.on('input-event', (e, inputEvent) => {
+    if (inputEvent.type === 'mouseDown') {
+      const tab = state.tabs.get(tabId);
+      if (tab && tab.splitView && tab.activeFocus !== side) {
+        tab.activeFocus = side;
+        state.ui.webContents.send('rave:tab-split-focus', { id: tabId, side });
+        notifyTabUpdated(state, tabId, wc);
+      }
+    }
+  });
 }
 
 function mergeTabs(state, targetId, sourceId, side) {
@@ -335,20 +348,53 @@ function toggleSplitTab(state, tabId) {
   if (!t) return;
 
   if (t.splitView) {
-    // Cerrar pantalla dividida
-    state.win.contentView.removeChildView(t.splitView);
-    t.splitView.webContents.close();
+    // Volver a separar la pantalla dividida (Convertir la secundaria en pestaña independiente estilo Opera GX)
+    const splitWc = t.splitView.webContents;
+    const splitView = t.splitView;
+
+    // Crear la nueva pestaña
+    const newTabId = tabSeq++;
+    const newTab = {
+      id: newTabId,
+      view: splitView,
+      splitView: null,
+      splitUrl: null,
+      activeFocus: 'primary'
+    };
+
+    // Remover la vista secundaria de la pestaña actual
     t.splitView = null;
     t.splitUrl = null;
     t.activeFocus = 'primary';
+
+    // Registrar la nueva pestaña en el estado
+    state.tabs.set(newTabId, newTab);
+
+    // Reconfigurar los escuchadores normales para ambas pestañas
+    setupPaneListeners(state, newTabId, 'primary');
+    setupPaneListeners(state, tabId, 'primary');
+
+    // Inicializar visualización
+    newTab.view.setVisible(false);
     relayout(state);
-    
+
+    // Notificar al renderer
     state.ui.webContents.send('rave:tab-split-state', {
       id: tabId,
       isSplit: false
     });
-    
+
+    state.ui.webContents.send('rave:tab-opened', {
+      id: newTabId,
+      url: splitWc.getURL()
+    });
+
+    // Actualizar estados cromados
     notifyTabUpdated(state, tabId, t.view.webContents);
+    notifyTabUpdated(state, newTabId, newTab.view.webContents);
+
+    // Seleccionar la pestaña recién creada
+    selectTab(state, newTabId);
   } else {
     // Abrir pantalla dividida
     const splitView = new WebContentsView({
