@@ -2,121 +2,361 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <title>Rave</title>
+  <title>Nueva pestaña — Rave</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
+    /* ── Variables ─────────────────────────────────── */
     :root {
-      --bg: #ffffff; --ink: #0a0a0a; --soft: #6b6b70;
-      --border: #d8d8dc; --surface: #f4f4f5;
+      --font: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+      --bg: #fafafa;
+      --bg2: #f1f1f3;
+      --glass: rgba(255,255,255,0.72);
+      --glass-b: rgba(255,255,255,0.5);
+      --border: rgba(0,0,0,0.08);
+      --ink: #1d1d1f;
+      --soft: #6e6e73;
+      --xsoft: #aeaeb2;
+      --accent: #1d1d1f;
+      --pill-bg: rgba(255,255,255,0.85);
     }
     @media (prefers-color-scheme: dark) {
-      :root { --bg:#0d0d0f; --ink:#f5f5f5; --soft:#9a9aa0; --border:#2e2e33; --surface:#161618; }
+      :root {
+        --bg: #0e0e10;
+        --bg2: #18181c;
+        --glass: rgba(26,26,30,0.78);
+        --glass-b: rgba(40,40,46,0.60);
+        --border: rgba(255,255,255,0.07);
+        --ink: #f5f5f7;
+        --soft: #98989d;
+        --xsoft: #636366;
+        --pill-bg: rgba(30,30,34,0.90);
+      }
     }
-    * { box-sizing: border-box; margin: 0; }
+    /* Manual themes passed via <html data-theme> */
+    html[data-theme="light"] {
+      --bg:#fafafa; --bg2:#f1f1f3;
+      --glass:rgba(255,255,255,0.72); --glass-b:rgba(255,255,255,0.5);
+      --border:rgba(0,0,0,0.08); --ink:#1d1d1f; --soft:#6e6e73; --xsoft:#aeaeb2;
+      --pill-bg:rgba(255,255,255,0.85);
+    }
+    html[data-theme="dark"] {
+      --bg:#0e0e10; --bg2:#18181c;
+      --glass:rgba(26,26,30,0.78); --glass-b:rgba(40,40,46,0.60);
+      --border:rgba(255,255,255,0.07); --ink:#f5f5f7; --soft:#98989d; --xsoft:#636366;
+      --pill-bg:rgba(30,30,34,0.90);
+    }
+
+    /* ── Reset ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
       height: 100%;
-      font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
-      background: var(--bg); color: var(--ink);
-      display: grid; place-items: center;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
     }
-    .wrap { width: min(620px, 88vw); text-align: center; margin-top: -6vh; }
-    .logo {
-      font-size: 64px; font-weight: 800; letter-spacing: -2px;
-      margin-bottom: 4px;
-    }
-    .logo .dot { color: var(--soft); }
-    .tag { color: var(--soft); font-size: 13px; margin-bottom: 32px; letter-spacing: .5px; }
-    form { display: flex; }
-    input {
-      flex: 1; height: 52px; padding: 0 22px;
-      font-size: 16px; color: var(--ink);
-      background: var(--surface);
-      border: 1px solid var(--border); border-radius: 26px;
-      outline: none; transition: border-color .12s, box-shadow .12s;
-    }
-    input:focus {
-      border-color: var(--ink);
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 10%, transparent);
-    }
-    input::placeholder { color: var(--soft); }
 
-    /* Accesos rápidos */
+    /* ── Background grid pattern ───────────────────── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--ink) 3%, transparent) 0%, transparent 55%),
+        radial-gradient(circle at 80% 80%, color-mix(in srgb, var(--ink) 2%, transparent) 0%, transparent 50%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── Page layout ───────────────────────────────── */
+    .page {
+      position: relative; z-index: 1;
+      min-height: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 20px 80px;
+      gap: 0;
+    }
+
+    /* ── Clock ─────────────────────────────────────── */
+    #clock-wrap { text-align: center; margin-bottom: 10px; }
+    #time {
+      font-size: clamp(56px, 12vw, 88px);
+      font-weight: 700;
+      letter-spacing: -3px;
+      color: var(--ink);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      transition: color 0.3s;
+    }
+    #date {
+      margin-top: 10px;
+      font-size: 15px;
+      font-weight: 400;
+      color: var(--soft);
+      letter-spacing: 0.01em;
+    }
+
+    /* ── Search bar ────────────────────────────────── */
+    #search-wrap { width: min(640px, 92vw); margin-top: 36px; }
+    #search-form { position: relative; display: flex; }
+    #search-icon {
+      position: absolute; left: 18px; top: 50%; transform: translateY(-50%);
+      width: 20px; height: 20px; display: grid; place-items: center;
+      color: var(--soft); pointer-events: none; z-index: 1;
+    }
+    #search-icon svg { width: 18px; height: 18px; }
+    #q {
+      width: 100%; height: 56px;
+      padding: 0 56px 0 50px;
+      background: var(--pill-bg);
+      backdrop-filter: blur(18px) saturate(1.6);
+      -webkit-backdrop-filter: blur(18px) saturate(1.6);
+      border: 1.5px solid var(--border);
+      border-radius: 999px;
+      color: var(--ink);
+      font-size: 16px; font-family: var(--font); font-weight: 400;
+      letter-spacing: -0.02em;
+      outline: none;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04);
+      transition: border-color 180ms ease, box-shadow 180ms ease, transform 120ms ease;
+    }
+    #q:focus {
+      border-color: var(--accent);
+      box-shadow:
+        0 0 0 3.5px color-mix(in srgb, var(--accent) 10%, transparent),
+        0 8px 32px rgba(0,0,0,0.08);
+      transform: scaleY(1.02);
+    }
+    #q::placeholder { color: var(--xsoft); }
+    #search-submit {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      width: 40px; height: 40px; border-radius: 999px;
+      border: none; background: var(--ink); color: var(--bg);
+      display: grid; place-items: center; cursor: pointer;
+      transition: opacity 140ms, transform 120ms cubic-bezier(0.34,1.4,0.64,1);
+    }
+    #search-submit:hover { opacity: 0.88; transform: translateY(-50%) scale(1.08); }
+    #search-submit svg { width: 16px; height: 16px; }
+
+    /* ── Quick access sites ────────────────────────── */
+    #sites-wrap { margin-top: 40px; width: min(640px, 92vw); }
+    #sites-label {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--xsoft);
+      margin-bottom: 14px; padding-left: 4px;
+    }
     #sites {
-      margin-top: 40px;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 16px 12px;
+      gap: 10px;
     }
     .site {
-      display: flex; flex-direction: column; align-items: center; gap: 10px;
-      padding: 14px 8px;
-      border-radius: 14px;
+      display: flex; flex-direction: column; align-items: center; gap: 9px;
+      padding: 16px 10px 14px;
+      background: var(--glass);
+      backdrop-filter: blur(16px) saturate(1.5);
+      -webkit-backdrop-filter: blur(16px) saturate(1.5);
+      border: 1px solid var(--border);
+      border-radius: 18px;
       cursor: pointer;
       text-decoration: none; color: var(--ink);
-      transition: background .12s ease;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.04);
+      transition: background 160ms ease, transform 150ms cubic-bezier(0.34,1.4,0.64,1), box-shadow 160ms ease;
     }
-    .site:hover { background: var(--surface); }
+    .site:hover {
+      background: var(--glass-b);
+      transform: translateY(-3px) scale(1.03);
+      box-shadow: 0 8px 28px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+    }
+    .site:active { transform: translateY(0) scale(0.97); }
     .site .ico {
-      width: 46px; height: 46px;
+      width: 48px; height: 48px;
       display: grid; place-items: center;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 50%;
-      overflow: hidden;
+      background: color-mix(in srgb, var(--ink) 5%, transparent);
+      border-radius: 14px; overflow: hidden;
+      transition: background 160ms;
     }
-    .site:hover .ico { background: var(--bg); }
-    .site .ico img { width: 26px; height: 26px; object-fit: contain; }
-    .site .ico .fallback { font-size: 20px; font-weight: 700; color: var(--soft); }
+    .site:hover .ico { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+    .site .ico img { width: 28px; height: 28px; object-fit: contain; }
+    .site .ico .fallback {
+      font-size: 22px; font-weight: 700;
+      color: var(--soft);
+      line-height: 1;
+    }
     .site .name {
-      font-size: 12px; max-width: 100%;
+      font-size: 11.5px; font-weight: 500;
+      max-width: 100%; text-align: center;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--soft);
     }
-    @media (max-width: 480px) { #sites { grid-template-columns: repeat(3, 1fr); } }
+    #sites:empty + #sites-wrap { display: none; }
+
+    /* ── Empty state ───────────────────────────────── */
+    #sites:empty { display: none; }
+
+    /* ── Shield badge ──────────────────────────────── */
+    #shield-badge {
+      position: fixed; bottom: 22px; right: 22px;
+      display: none;
+      align-items: center; gap: 8px;
+      padding: 8px 14px;
+      background: var(--glass);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px; font-weight: 500; color: var(--soft);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+      animation: badge-in 400ms cubic-bezier(0.34,1.4,0.64,1) both;
+    }
+    #shield-badge.visible { display: flex; }
+    @keyframes badge-in { from { opacity: 0; transform: translateY(10px) scale(0.92); } }
+    #shield-badge svg { width: 14px; height: 14px; color: var(--ink); }
+    #shield-count-nt { font-weight: 700; color: var(--ink); }
+
+    /* ── Responsive ────────────────────────────────── */
+    @media (max-width: 520px) {
+      #sites { grid-template-columns: repeat(3, 1fr); }
+      #time { letter-spacing: -2px; }
+    }
+    @media (max-width: 360px) {
+      #sites { grid-template-columns: repeat(2, 1fr); }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="logo">Rave<span class="dot">.</span></div>
-    <div class="tag">Minimalista · Privado · Sin anuncios</div>
-    <form id="f">
-      <input id="q" autofocus spellcheck="false"
-             placeholder="Busca en la web o escribe una dirección" />
-    </form>
-    <div id="sites"></div>
-  </div>
-  <script>
-    // El motor de búsqueda real lo decide Rave; aquí leemos el que pasó por la URL.
-    const params = new URLSearchParams(location.search);
-    const engine = params.get('engine') || 'https://duckduckgo.com/?q=';
+  <div class="page">
+    <!-- Clock & Date -->
+    <div id="clock-wrap">
+      <div id="time">00:00</div>
+      <div id="date"></div>
+    </div>
 
-    // Accesos rápidos (sitios sugeridos).
+    <!-- Search bar -->
+    <div id="search-wrap">
+      <form id="search-form">
+        <span id="search-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </span>
+        <input id="q" autocomplete="off" spellcheck="false"
+               placeholder="Busca en la web o escribe una dirección…" autofocus />
+        <button type="submit" id="search-submit" aria-label="Buscar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+            <polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+
+    <!-- Top sites -->
+    <div id="sites-wrap">
+      <div id="sites-label">Accesos rápidos</div>
+      <div id="sites"></div>
+    </div>
+  </div>
+
+  <!-- Shield stats badge (shown when blocks > 0) -->
+  <div id="shield-badge">
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7l-9-5z"/>
+    </svg>
+    <span>Bloqueados hoy:</span>
+    <span id="shield-count-nt">0</span>
+  </div>
+
+  <script>
+    /* ── Read URL params ─────────────────────────── */
+    const params   = new URLSearchParams(location.search);
+    const engine   = params.get('engine') || 'https://duckduckgo.com/?q=';
+    const theme    = params.get('theme');
+    const blocks   = parseInt(params.get('blocks') || '0', 10);
+
+    if (theme) document.documentElement.setAttribute('data-theme', theme);
+
+    /* ── Clock ───────────────────────────────────── */
+    const timeEl = document.getElementById('time');
+    const dateEl = document.getElementById('date');
+    const DAYS   = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+    function tick() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2,'0');
+      const m = String(now.getMinutes()).padStart(2,'0');
+      timeEl.textContent = `${h}:${m}`;
+      dateEl.textContent = `${DAYS[now.getDay()]}, ${now.getDate()} de ${MONTHS[now.getMonth()]} de ${now.getFullYear()}`;
+    }
+    tick();
+    // Sync to the next full minute, then tick every 60 s
+    const msToNext = (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
+    setTimeout(() => { tick(); setInterval(tick, 60000); }, msToNext);
+
+    /* ── Shield badge ────────────────────────────── */
+    if (blocks > 0) {
+      document.getElementById('shield-count-nt').textContent = blocks;
+      document.getElementById('shield-badge').classList.add('visible');
+    }
+
+    /* ── Top sites ───────────────────────────────── */
     let sites = [];
     try { sites = JSON.parse(params.get('sites') || '[]'); } catch {}
     const grid = document.getElementById('sites');
+    const wrap = document.getElementById('sites-wrap');
+
+    if (sites.length === 0) wrap.style.display = 'none';
+
     for (const s of sites) {
       let host = '';
       try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch { continue; }
+
+      const letter = (s.title || host || '?').trim().charAt(0).toUpperCase();
+
       const a = document.createElement('a');
       a.className = 'site';
       a.href = s.url;
       a.title = s.url;
-      const letter = (s.title || host || '?').trim().charAt(0).toUpperCase();
-      a.innerHTML =
-        `<span class="ico"><img alt="" /><span class="fallback" style="display:none">${letter}</span></span>` +
-        `<span class="name"></span>`;
-      a.querySelector('.name').textContent = s.title || host;
-      const img = a.querySelector('img');
-      // Favicon vía servicio de DuckDuckGo (privado). Si falla, muestra la inicial.
+
+      const ico = document.createElement('span');
+      ico.className = 'ico';
+
+      const img = document.createElement('img');
+      img.alt = '';
       img.src = 'https://icons.duckduckgo.com/ip3/' + host + '.ico';
-      img.onerror = () => { img.style.display = 'none'; a.querySelector('.fallback').style.display = 'block'; };
+      img.addEventListener('error', () => {
+        img.style.display = 'none';
+        fallback.style.display = 'block';
+      });
+
+      const fallback = document.createElement('span');
+      fallback.className = 'fallback';
+      fallback.textContent = letter;
+      fallback.style.display = 'none';
+
+      ico.appendChild(img);
+      ico.appendChild(fallback);
+
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = s.title || host;
+
+      a.appendChild(ico);
+      a.appendChild(name);
       grid.appendChild(a);
     }
-    document.getElementById('f').addEventListener('submit', (e) => {
+
+    /* ── Search form ─────────────────────────────── */
+    document.getElementById('search-form').addEventListener('submit', e => {
       e.preventDefault();
       const t = document.getElementById('q').value.trim();
       if (!t) return;
-      if (/^[a-z]+:\/\//i.test(t)) location.href = t;
-      else if (/^[^\s]+\.[^\s]+$/.test(t) && !t.includes(' ')) location.href = 'https://' + t;
-      else location.href = engine + encodeURIComponent(t);
+      if (/^[a-z]+:\/\//i.test(t))            location.href = t;
+      else if (/^[^\s]+\.[^\s]+$/.test(t) && !t.includes(' '))
+                                               location.href = 'https://' + t;
+      else                                     location.href = engine + encodeURIComponent(t);
     });
   </script>
 </body>
