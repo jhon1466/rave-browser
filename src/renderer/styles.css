@@ -918,3 +918,75 @@ body.incognito #address {
   width: 11px;
   height: 11px;
 }
+
+/* ======================================================
+   Superposición de arrastre de pestañas (Drag & Drop Split)
+   ====================================================== */
+#drag-split-overlay {
+  position: absolute;
+  top: 80px; /* Debajo de las pestañas */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  z-index: 99999;
+  pointer-events: none;
+}
+
+#drag-split-overlay.hidden {
+  display: none !important;
+}
+
+.drop-zone {
+  flex: 1;
+  height: 100%;
+  background: color-mix(in srgb, var(--surface) 20%, transparent);
+  border: 3px dashed transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 180ms var(--ease);
+  pointer-events: auto; /* Capturar eventos de arrastre */
+  backdrop-filter: blur(4px);
+}
+
+.drop-zone-content {
+  text-align: center;
+  color: var(--ink-soft);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: scale(0.9);
+  transition: transform 180ms var(--ease), color 180ms var(--ease);
+}
+
+.drop-zone-content svg {
+  width: 48px;
+  height: 48px;
+  opacity: 0.5;
+  color: var(--ink-soft);
+  transition: opacity 180ms var(--ease), color 180ms var(--ease);
+}
+
+.drop-zone-content p {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.drop-zone.hover {
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+  border-color: var(--blue);
+}
+
+.drop-zone.hover .drop-zone-content {
+  transform: scale(1);
+  color: var(--blue);
+}
+
+.drop-zone.hover .drop-zone-content svg {
+  opacity: 1;
+  color: var(--blue);
+}

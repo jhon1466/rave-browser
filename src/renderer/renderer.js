@@ -79,6 +79,7 @@ const isInternal = (url) => !url || url.startsWith(NEWTAB_BASE);
 // ===== Estado de pestañas =====
 const tabs = new Map();   // id -> { el, favEl, spinEl, titleEl, title, url, zoom, back, fwd }
 let activeId = null;
+let draggedTabId = null;
 
 const $ = (id) => document.getElementById(id);
 const $tabs = $('tabs'), $address = $('address'), $back = $('back'), $forward = $('forward');
@@ -112,8 +113,22 @@ window.rave.onTabOpened(({ id, url }) => {
   $tabs.appendChild(el);
   el.addEventListener('click', (e) => { if (!e.target.closest('.close')) window.rave.tabSelect(id); });
   el.querySelector('.close').addEventListener('click', (e) => { e.stopPropagation(); window.rave.tabClose(id); });
-  el.addEventListener('dragstart', () => el.classList.add('dragging'));
-  el.addEventListener('dragend', () => { el.classList.remove('dragging'); syncTabOrder(); });
+  el.addEventListener('dragstart', () => {
+    el.classList.add('dragging');
+    draggedTabId = id;
+    if (tabs.size > 1) {
+      $('drag-split-overlay').classList.remove('hidden');
+      window.rave.setOverlay(true);
+    }
+  });
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    $('drag-split-overlay').classList.add('hidden');
+    $('drop-left').classList.remove('hover');
+    $('drop-right').classList.remove('hover');
+    window.rave.setOverlay(false);
+    syncTabOrder();
+  });
   tabs.set(id, {
     el, title: 'Nueva pestaña', url, zoom: 1, back: false, fwd: false,
     favEl: el.querySelector('.favicon'), spinEl: el.querySelector('.spinner'), titleEl: el.querySelector('.title'),
@@ -1085,6 +1100,44 @@ window.rave.onTabSplitFocus(({ id, side }) => {
   t.activeSide = side;
   if (id === activeId) {
     updateSplitIndicator();
+  }
+});
+
+// ===== Arrastrar y soltar para dividir pestañas =====
+const $dropLeft = $('drop-left');
+const $dropRight = $('drop-right');
+
+$dropLeft.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  if (draggedTabId !== null && draggedTabId !== activeId) {
+    $dropLeft.classList.add('hover');
+  }
+});
+$dropLeft.addEventListener('dragleave', () => {
+  $dropLeft.classList.remove('hover');
+});
+$dropLeft.addEventListener('drop', (e) => {
+  e.preventDefault();
+  $dropLeft.classList.remove('hover');
+  if (draggedTabId !== null && draggedTabId !== activeId) {
+    window.rave.tabSplitMerge(activeId, draggedTabId, 'left');
+  }
+});
+
+$dropRight.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  if (draggedTabId !== null && draggedTabId !== activeId) {
+    $dropRight.classList.add('hover');
+  }
+});
+$dropRight.addEventListener('dragleave', () => {
+  $dropRight.classList.remove('hover');
+});
+$dropRight.addEventListener('drop', (e) => {
+  e.preventDefault();
+  $dropRight.classList.remove('hover');
+  if (draggedTabId !== null && draggedTabId !== activeId) {
+    window.rave.tabSplitMerge(activeId, draggedTabId, 'right');
   }
 });
 

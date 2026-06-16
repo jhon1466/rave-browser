@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('rave', {
 
   // Pantalla dividida
   tabSplitToggle: (id) => ipcRenderer.send('rave:tab-split-toggle', id),
+  tabSplitMerge: (targetId, sourceId, side) => ipcRenderer.send('rave:tab-split-merge', { targetId, sourceId, side }),
   onTabSplitState: (cb) => on('rave:tab-split-state', cb),
   onTabSplitFocus: (cb) => on('rave:tab-split-focus', cb),
 });

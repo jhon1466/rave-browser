@@ -203,6 +203,133 @@ function notifyTabUpdated(state, tabId, wc) {
   });
 }
 
+function setupPaneListeners(state, tabId, side) {
+  const t = state.tabs.get(tabId);
+  if (!t) return;
+  const view = (side === 'primary') ? t.view : t.splitView;
+  if (!view) return;
+  const wc = view.webContents;
+
+  // Limpiar anteriores
+  wc.removeAllListeners('did-start-loading');
+  wc.removeAllListeners('did-stop-loading');
+  wc.removeAllListeners('page-title-updated');
+  wc.removeAllListeners('page-favicon-updated');
+  wc.removeAllListeners('did-navigate');
+  wc.removeAllListeners('did-navigate-in-page');
+  wc.removeAllListeners('dom-ready');
+  wc.removeAllListeners('found-in-page');
+  wc.removeAllListeners('context-menu');
+  wc.removeAllListeners('focus');
+
+  // Registrar nuevos
+  const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id: tabId, ...fields });
+  const navState = () => ({
+    canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
+    canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
+  });
+
+  wc.on('did-start-loading', () => {
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.activeFocus === side) send({ loading: true });
+  });
+  wc.on('did-stop-loading', () => {
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.activeFocus === side) send({ loading: false, ...navState() });
+  });
+  wc.on('page-title-updated', (_e, title) => {
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.activeFocus === side) send({ title });
+  });
+  wc.on('page-favicon-updated', (_e, favicons) => {
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.activeFocus === side) send({ favicon: favicons && favicons[0] });
+  });
+  
+  const onNav = () => {
+    if (side === 'primary') {
+      t.url = wc.getURL();
+    } else {
+      t.splitUrl = wc.getURL();
+    }
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.activeFocus === side) {
+      send({ url: wc.getURL(), ...navState() });
+    }
+    maybeYouTube(wc);
+  };
+  wc.on('did-navigate', onNav);
+  wc.on('did-navigate-in-page', onNav);
+  wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, tabId); });
+  wc.on('found-in-page', (_e, r) => {
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.activeFocus === side) state.ui.webContents.send('rave:tab-found', { id: tabId, ...r });
+  });
+  wc.on('context-menu', (_e, p) => {
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.activeFocus === side) state.ui.webContents.send('rave:context-menu', { id: tabId, p });
+  });
+  wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
+
+  wc.on('focus', () => {
+    const tab = state.tabs.get(tabId);
+    if (tab && tab.splitView && tab.activeFocus !== side) {
+      tab.activeFocus = side;
+      state.ui.webContents.send('rave:tab-split-focus', { id: tabId, side });
+      notifyTabUpdated(state, tabId, wc);
+    }
+  });
+}
+
+function mergeTabs(state, targetId, sourceId, side) {
+  const tA = state.tabs.get(targetId);
+  const tB = state.tabs.get(sourceId);
+  if (!tA || !tB || targetId === sourceId) return;
+
+  // Si tA ya tiene pantalla dividida, no podemos meter otra.
+  if (tA.splitView) return;
+
+  // Quitar la vista de B de la ventana
+  state.win.contentView.removeChildView(tB.view);
+
+  if (side === 'left') {
+    tA.splitView = tA.view;
+    tA.view = tB.view;
+    tA.activeFocus = 'primary';
+  } else {
+    tA.splitView = tB.view;
+    tA.activeFocus = 'secondary';
+  }
+
+  // Asegurar que ambas vistas están agregadas a la ventana
+  state.win.contentView.addChildView(tA.view, 0);
+  state.win.contentView.addChildView(tA.splitView, 0);
+
+  // Configurar escuchadores para ambas partes
+  setupPaneListeners(state, targetId, 'primary');
+  setupPaneListeners(state, targetId, 'secondary');
+
+  // Eliminar la pestaña B del mapa y notificar al renderer
+  state.tabs.delete(sourceId);
+  state.ui.webContents.send('rave:tab-closed', { id: sourceId });
+
+  // Hacer visible y relayout
+  tA.view.setVisible(true);
+  tA.splitView.setVisible(true);
+  relayout(state);
+
+  // Sincronizar estado con la interfaz
+  state.ui.webContents.send('rave:tab-split-state', {
+    id: targetId,
+    isSplit: true,
+    activeSide: tA.activeFocus
+  });
+
+  // Actualizar la interfaz con los datos del panel activo
+  const activeWc = (tA.activeFocus === 'primary') ? tA.view.webContents : tA.splitView.webContents;
+  notifyTabUpdated(state, targetId, activeWc);
+}
+
 function toggleSplitTab(state, tabId) {
   const t = state.tabs.get(tabId);
   if (!t) return;
@@ -232,75 +359,14 @@ function toggleSplitTab(state, tabId) {
     
     t.splitView = splitView;
     t.activeFocus = 'secondary';
-    
-    const wc = splitView.webContents;
-    const id = tabId;
-    const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id, ...fields });
-    const navState = () => ({
-      canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
-      canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
-    });
-
-    wc.on('did-start-loading', () => {
-      const tab = state.tabs.get(id);
-      if (tab && tab.activeFocus === 'secondary') send({ loading: true });
-    });
-    wc.on('did-stop-loading', () => {
-      const tab = state.tabs.get(id);
-      if (tab && tab.activeFocus === 'secondary') send({ loading: false, ...navState() });
-    });
-    wc.on('page-title-updated', (_e, title) => {
-      const tab = state.tabs.get(id);
-      if (tab && tab.activeFocus === 'secondary') send({ title });
-    });
-    wc.on('page-favicon-updated', (_e, favicons) => {
-      const tab = state.tabs.get(id);
-      if (tab && tab.activeFocus === 'secondary') send({ favicon: favicons && favicons[0] });
-    });
-    
-    const onNav = () => {
-      t.splitUrl = wc.getURL();
-      const tab = state.tabs.get(id);
-      if (tab && tab.activeFocus === 'secondary') {
-        send({ url: wc.getURL(), ...navState() });
-      }
-      maybeYouTube(wc);
-    };
-    wc.on('did-navigate', onNav);
-    wc.on('did-navigate-in-page', onNav);
-    wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); });
-    wc.on('found-in-page', (_e, r) => {
-      const tab = state.tabs.get(id);
-      if (tab && tab.activeFocus === 'secondary') state.ui.webContents.send('rave:tab-found', { id, ...r });
-    });
-    wc.on('context-menu', (_e, p) => {
-      const tab = state.tabs.get(id);
-      if (tab && tab.activeFocus === 'secondary') state.ui.webContents.send('rave:context-menu', { id, p });
-    });
-    wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
-
-    // Enlace de foco para alternar el lado activo
-    t.view.webContents.on('focus', () => {
-      const tab = state.tabs.get(tabId);
-      if (tab && tab.splitView && tab.activeFocus !== 'primary') {
-        tab.activeFocus = 'primary';
-        state.ui.webContents.send('rave:tab-split-focus', { id: tabId, side: 'primary' });
-        notifyTabUpdated(state, tabId, tab.view.webContents);
-      }
-    });
-
-    splitView.webContents.on('focus', () => {
-      const tab = state.tabs.get(tabId);
-      if (tab && tab.splitView && tab.activeFocus !== 'secondary') {
-        tab.activeFocus = 'secondary';
-        state.ui.webContents.send('rave:tab-split-focus', { id: tabId, side: 'secondary' });
-        notifyTabUpdated(state, tabId, splitView.webContents);
-      }
-    });
 
     // Cargar la página nueva pestaña por defecto en la división
     const newTabPath = path.join(__dirname, 'renderer', 'newtab.html');
-    wc.loadFile(newTabPath);
+    splitView.webContents.loadFile(newTabPath);
+
+    // Configurar los escuchadores para ambas partes usando la función helper
+    setupPaneListeners(state, tabId, 'primary');
+    setupPaneListeners(state, tabId, 'secondary');
 
     splitView.setVisible(true);
     relayout(state);
@@ -497,6 +563,7 @@ ipcMain.handle('rave:tab-create', (e, url) => { const s = st(e); return s ? open
 ipcMain.on('rave:tab-select', (e, id) => { const s = st(e); if (s) selectTab(s, id); });
 ipcMain.on('rave:tab-close', (e, id) => { const s = st(e); if (s) closeTab(s, id); });
 ipcMain.on('rave:tab-split-toggle', (e, id) => { const s = st(e); if (s) toggleSplitTab(s, id); });
+ipcMain.on('rave:tab-split-merge', (e, { targetId, sourceId, side }) => { const s = st(e); if (s) mergeTabs(s, targetId, sourceId, side); });
 ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
   const s = st(e); const t = s && s.tabs.get(id); if (!t) return;
   const targetView = (t.splitView && t.activeFocus === 'secondary') ? t.splitView : t.view;
