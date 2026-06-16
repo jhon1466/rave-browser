@@ -10,9 +10,24 @@
 
 const path = require('path');
 const fs = require('fs');
-const { app } = require('electron');
+const { app, ipcMain } = require('electron');
 const { ElectronBlocker } = require('@ghostery/adblocker-electron');
 const fetch = require('cross-fetch');
+
+// Interceptar ipcMain.handle para evitar errores al activar el adblocker
+// en múltiples sesiones (como el modo incógnito).
+const originalHandle = ipcMain.handle;
+ipcMain.handle = function(channel, listener) {
+  try {
+    originalHandle.call(ipcMain, channel, listener);
+  } catch (err) {
+    if (err && err.message && err.message.includes('Attempted to register a second handler')) {
+      console.warn(`[Rave] Handler para el canal "${channel}" ya estaba registrado. Omitiendo.`);
+    } else {
+      throw err;
+    }
+  }
+};
 
 // v2: ahora cargamos las listas COMPLETAS de uBlock Origin (incluidas las que
 // neutralizan los anuncios de YouTube mediante scriptlets +js).
