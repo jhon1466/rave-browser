@@ -18,8 +18,9 @@
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://TU-SERVIDOR.com/rave/updates/"
+        "provider": "github",
+        "owner": "jhon1466",
+        "repo": "rave-browser"
       }
     ]
   },
