@@ -238,6 +238,17 @@
       background: #ffffff;
       color: #0c0c0e;
     }
+    #bg-video {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      z-index: -2;
+      display: none;
+      pointer-events: none;
+    }
+    body.has-video-bg #bg-video {
+      display: block;
+    }
 
     /* ── Customize button & menu ───────────────────── */
     #customize-btn {
@@ -433,6 +444,7 @@
   </style>
 </head>
 <body>
+  <video id="bg-video" autoplay loop muted playsinline></video>
   <div class="page">
     <!-- Clock & Date -->
     <div id="clock-wrap">
@@ -486,12 +498,12 @@
   
   <div id="customize-menu">
     <div class="customize-title">Personalizar fondo</div>
-    <div class="customize-desc">Sube una imagen (JPEG/PNG) para establecerla como fondo de la nueva pestaña.</div>
+    <div class="customize-desc">Sube una imagen (JPEG/PNG/GIF/WebP) o video (MP4/WebM) para el fondo.</div>
     <button class="customize-btn-action" id="btn-upload-bg">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
       </svg>
-      Subir imagen
+      Subir archivo
     </button>
     <button class="customize-btn-action customize-btn-danger hidden" id="btn-remove-bg">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -499,7 +511,7 @@
       </svg>
       Quitar fondo
     </button>
-    <input type="file" id="bg-input" accept="image/*" style="display: none" />
+    <input type="file" id="bg-input" accept="image/*,video/*" style="display: none" />
     
     <div class="sep" style="height: 1px; background: var(--border); margin: 6px 0;"></div>
     <div class="customize-title">Accesos rápidos</div>
@@ -700,23 +712,115 @@
       else                                     location.href = engine + encodeURIComponent(t);
     });
 
-    /* ── Custom Background ────────────────────────── */
+    /* ── Custom Background (IndexedDB) ─────────────── */
     const customizeBtn = document.getElementById('customize-btn');
     const customizeMenu = document.getElementById('customize-menu');
     const btnUploadBg = document.getElementById('btn-upload-bg');
     const btnRemoveBg = document.getElementById('btn-remove-bg');
     const bgInput = document.getElementById('bg-input');
 
-    function loadCustomBg() {
-      const savedBg = localStorage.getItem('rave-newtab-bg');
-      if (savedBg) {
-        document.body.style.backgroundImage = `url("${savedBg}")`;
-        document.body.classList.add('has-custom-bg');
-        btnRemoveBg.classList.remove('hidden');
-      } else {
-        document.body.style.backgroundImage = '';
-        document.body.classList.remove('has-custom-bg');
-        btnRemoveBg.classList.add('hidden');
+    const dbName = 'RaveNewTabDB';
+    const storeName = 'backgrounds';
+
+    function getDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(dbName, 1);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(storeName)) {
+            db.createObjectStore(storeName);
+          }
+        };
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function saveBackground(blob, type) {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.put({ blob, type }, 'current');
+        request.onsuccess = () => resolve();
+        request.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function getBackground() {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, 'readonly');
+        const store = transaction.objectStore(storeName);
+        const request = store.get('current');
+        request.onsuccess = (e) => resolve(e.target.result);
+        request.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    async function removeBackground() {
+      const db = await getDB();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        const request = store.delete('current');
+        request.onsuccess = () => resolve();
+        request.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    let currentObjectUrl = null;
+
+    async function loadCustomBg() {
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
+
+      try {
+        const bgData = await getBackground();
+        const videoEl = document.getElementById('bg-video');
+
+        if (bgData && bgData.blob) {
+          currentObjectUrl = URL.createObjectURL(bgData.blob);
+          document.body.classList.add('has-custom-bg');
+          btnRemoveBg.classList.remove('hidden');
+
+          if (bgData.type === 'video') {
+            document.body.classList.add('has-video-bg');
+            document.body.style.backgroundImage = '';
+            videoEl.src = currentObjectUrl;
+            videoEl.play().catch(err => console.error("Error playing bg video:", err));
+          } else {
+            document.body.classList.remove('has-video-bg');
+            videoEl.src = '';
+            document.body.style.backgroundImage = `url("${currentObjectUrl}")`;
+          }
+        } else {
+          // Migration from old localStorage base64 background to IndexedDB
+          const oldBg = localStorage.getItem('rave-newtab-bg');
+          if (oldBg) {
+            try {
+              const res = await fetch(oldBg);
+              const blob = await res.blob();
+              await saveBackground(blob, 'image');
+              localStorage.removeItem('rave-newtab-bg');
+              loadCustomBg();
+              return;
+            } catch (err) {
+              console.error("Migration failed:", err);
+              localStorage.removeItem('rave-newtab-bg');
+            }
+          }
+
+          document.body.classList.remove('has-custom-bg');
+          document.body.classList.remove('has-video-bg');
+          document.body.style.backgroundImage = '';
+          videoEl.src = '';
+          btnRemoveBg.classList.add('hidden');
+        }
+      } catch (err) {
+        console.error("Error loading custom background:", err);
       }
     }
     loadCustomBg();
@@ -736,35 +840,37 @@
       bgInput.click();
     });
 
-    bgInput.addEventListener('change', (e) => {
+    bgInput.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
-      if (file.size > 5 * 1024 * 1024) {
-        alert('La imagen seleccionada es demasiado grande. Elige una menor a 5MB para un mejor rendimiento.');
+      if (file.size > 100 * 1024 * 1024) {
+        alert('El archivo seleccionado es demasiado grande. Por favor, elige uno menor a 100MB para un mejor rendimiento.');
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target.result;
-        try {
-          localStorage.setItem('rave-newtab-bg', base64);
-          loadCustomBg();
-          customizeMenu.classList.remove('open');
-        } catch (err) {
-          console.error(err);
-          alert('No se pudo guardar la imagen (es posible que supere el límite de almacenamiento de tu navegador). Elige una de menor resolución.');
-        }
-      };
-      reader.readAsDataURL(file);
+      const type = file.type.startsWith('video/') ? 'video' : 'image';
+
+      try {
+        await saveBackground(file, type);
+        await loadCustomBg();
+        customizeMenu.classList.remove('open');
+      } catch (err) {
+        console.error(err);
+        alert('Ocurrió un error al guardar el archivo de fondo de pantalla.');
+      }
     });
 
-    btnRemoveBg.addEventListener('click', () => {
-      localStorage.removeItem('rave-newtab-bg');
-      loadCustomBg();
-      customizeMenu.classList.remove('open');
-      bgInput.value = '';
+    btnRemoveBg.addEventListener('click', async () => {
+      try {
+        await removeBackground();
+        await loadCustomBg();
+        customizeMenu.classList.remove('open');
+        bgInput.value = '';
+      } catch (err) {
+        console.error(err);
+        alert('No se pudo quitar el fondo de pantalla.');
+      }
     });
 
     /* ── Modal Atajos Logic ──────────────────────── */
