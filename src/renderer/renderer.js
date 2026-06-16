@@ -883,8 +883,12 @@ window.rave.onUpdate((u) => {
       <button class="btn" style="height:28px">Reiniciar</button>`;
     updateToast.querySelector('button').addEventListener('click', () => window.rave.updateInstall());
     $('toasts').appendChild(updateToast);
+  } else if (u.state === 'not-available') {
+    if (updateToast) updateToast.remove();
+    toast({ name: 'Actualizaciones' }, 'Ya estás usando la versión más reciente.');
   } else if (u.state === 'error') {
-    toast({ name: 'Actualizaciones' }, 'Sin actualizaciones o error de red');
+    if (updateToast) updateToast.remove();
+    toast({ name: 'Actualizaciones' }, u.message || 'Sin actualizaciones o error de red');
   }
 });
 
