@@ -152,6 +152,7 @@
       gap: 10px;
     }
     .site {
+      position: relative;
       display: flex; flex-direction: column; align-items: center; gap: 9px;
       padding: 16px 10px 14px;
       background: var(--glass);
@@ -312,6 +313,115 @@
       border-color: rgba(255, 69, 58, 0.4);
     }
 
+    /* ── Custom Shortcuts ────────────────────────── */
+    .site-actions {
+      position: absolute;
+      top: 8px; right: 8px;
+      display: flex; gap: 4px;
+      opacity: 0;
+      transition: opacity 150ms ease;
+      z-index: 5;
+    }
+    .site:hover .site-actions {
+      opacity: 1;
+    }
+    .site-action-btn {
+      width: 22px; height: 22px;
+      border-radius: 6px;
+      border: none;
+      background: var(--glass-b);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: var(--ink);
+      display: grid; place-items: center;
+      cursor: pointer;
+      transition: background 150ms, transform 120ms;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .site-action-btn:hover {
+      background: var(--ink);
+      color: var(--bg);
+      transform: scale(1.1);
+    }
+    .site-action-btn svg { width: 12px; height: 12px; }
+
+    /* Modal dialog */
+    #shortcut-modal {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      display: none; place-items: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      z-index: 20;
+      opacity: 0; transition: opacity 200ms ease;
+    }
+    #shortcut-modal.visible {
+      display: grid;
+      opacity: 1;
+    }
+    .modal-card {
+      width: min(340px, 90vw);
+      background: var(--glass);
+      backdrop-filter: blur(24px) saturate(1.8);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.18);
+      display: flex; flex-direction: column; gap: 16px;
+      transform: scale(0.92); transition: transform 200ms ease;
+    }
+    #shortcut-modal.visible .modal-card {
+      transform: scale(1);
+    }
+    .modal-title {
+      font-size: 15px; font-weight: 600; color: var(--ink);
+    }
+    .modal-input-group {
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .modal-input-group label {
+      font-size: 11px; font-weight: 500; color: var(--soft);
+    }
+    .modal-input {
+      height: 38px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--pill-bg);
+      color: var(--ink);
+      padding: 0 12px; font-size: 13px; font-family: var(--font);
+      outline: none;
+      transition: border-color 150ms;
+    }
+    .modal-input:focus {
+      border-color: var(--ink);
+    }
+    .modal-actions {
+      display: flex; justify-content: flex-end; gap: 10px;
+      margin-top: 4px;
+    }
+    .modal-btn {
+      height: 34px; padding: 0 14px; border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 12px; font-weight: 500; font-family: var(--font);
+      cursor: pointer; transition: background 150ms;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal-btn.primary {
+      background: var(--ink);
+      color: var(--bg);
+      border: none;
+    }
+    .modal-btn.primary:hover {
+      opacity: 0.9;
+    }
+    .modal-btn.ghost {
+      background: transparent;
+      color: var(--soft);
+    }
+    .modal-btn.ghost:hover {
+      background: color-mix(in srgb, var(--ink) 4%, transparent);
+    }
+
     /* ── Responsive ────────────────────────────────── */
     @media (max-width: 520px) {
       #sites { grid-template-columns: repeat(3, 1fr); }
@@ -390,6 +500,34 @@
       Quitar fondo
     </button>
     <input type="file" id="bg-input" accept="image/*" style="display: none" />
+    
+    <div class="sep" style="height: 1px; background: var(--border); margin: 6px 0;"></div>
+    <div class="customize-title">Accesos rápidos</div>
+    <button class="customize-btn-action" id="btn-reset-shortcuts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M3 21v-5h5"/>
+      </svg>
+      Restablecer atajos
+    </button>
+  </div>
+
+  <!-- Modal para atajos -->
+  <div id="shortcut-modal">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-shortcut-title">Añadir atajo</div>
+      <div class="modal-input-group">
+        <label for="shortcut-name">Nombre</label>
+        <input type="text" id="shortcut-name" class="modal-input" placeholder="Ej: Google" autocomplete="off" />
+      </div>
+      <div class="modal-input-group">
+        <label for="shortcut-url">URL</label>
+        <input type="text" id="shortcut-url" class="modal-input" placeholder="Ej: https://google.com" autocomplete="off" />
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn ghost" id="btn-cancel-shortcut">Cancelar</button>
+        <button class="modal-btn primary" id="btn-save-shortcut">Guardar</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -427,50 +565,129 @@
 
     /* ── Top sites ───────────────────────────────── */
     let sites = [];
-    try { sites = JSON.parse(params.get('sites') || '[]'); } catch {}
+    const customSitesStr = localStorage.getItem('rave-custom-sites');
+    if (customSitesStr) {
+      try { sites = JSON.parse(customSitesStr); } catch {}
+    } else {
+      try { sites = JSON.parse(params.get('sites') || '[]'); } catch {}
+    }
+
     const grid = document.getElementById('sites');
     const wrap = document.getElementById('sites-wrap');
 
-    if (sites.length === 0) wrap.style.display = 'none';
+    function renderSites() {
+      grid.innerHTML = '';
+      if (sites.length === 0 && !customSitesStr) {
+        wrap.style.display = 'none';
+        return;
+      }
+      wrap.style.display = 'block';
 
-    for (const s of sites) {
-      let host = '';
-      try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch { continue; }
+      sites.forEach((s, idx) => {
+        let host = '';
+        try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch { return; }
 
-      const letter = (s.title || host || '?').trim().charAt(0).toUpperCase();
+        const letter = (s.title || host || '?').trim().charAt(0).toUpperCase();
 
-      const a = document.createElement('a');
-      a.className = 'site';
-      a.href = s.url;
-      a.title = s.url;
+        const a = document.createElement('a');
+        a.className = 'site';
+        a.href = s.url;
+        a.title = s.url;
 
-      const ico = document.createElement('span');
-      ico.className = 'ico';
+        // Action buttons container
+        const actions = document.createElement('div');
+        actions.className = 'site-actions';
 
-      const img = document.createElement('img');
-      img.alt = '';
-      img.src = 'https://icons.duckduckgo.com/ip3/' + host + '.ico';
-      img.addEventListener('error', () => {
-        img.style.display = 'none';
-        fallback.style.display = 'block';
+        // Edit button
+        const btnEdit = document.createElement('button');
+        btnEdit.className = 'site-action-btn';
+        btnEdit.title = 'Editar';
+        btnEdit.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>`;
+        btnEdit.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openShortcutModal(idx);
+        });
+
+        // Delete button
+        const btnDel = document.createElement('button');
+        btnDel.className = 'site-action-btn';
+        btnDel.title = 'Eliminar';
+        btnDel.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>`;
+        btnDel.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          deleteShortcut(idx);
+        });
+
+        actions.appendChild(btnEdit);
+        actions.appendChild(btnDel);
+        a.appendChild(actions);
+
+        const ico = document.createElement('span');
+        ico.className = 'ico';
+
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = 'https://icons.duckduckgo.com/ip3/' + host + '.ico';
+        img.addEventListener('error', () => {
+          img.style.display = 'none';
+          fallback.style.display = 'block';
+        });
+
+        const fallback = document.createElement('span');
+        fallback.className = 'fallback';
+        fallback.textContent = letter;
+        fallback.style.display = 'none';
+
+        ico.appendChild(img);
+        ico.appendChild(fallback);
+
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = s.title || host;
+
+        a.appendChild(ico);
+        a.appendChild(name);
+        grid.appendChild(a);
       });
 
-      const fallback = document.createElement('span');
-      fallback.className = 'fallback';
-      fallback.textContent = letter;
-      fallback.style.display = 'none';
+      // Add "+" shortcut button if less than 8
+      if (sites.length < 8) {
+        const addCard = document.createElement('div');
+        addCard.className = 'site add-shortcut-btn';
+        addCard.id = 'btn-add-shortcut';
+        addCard.title = 'Añadir atajo';
 
-      ico.appendChild(img);
-      ico.appendChild(fallback);
+        const ico = document.createElement('span');
+        ico.className = 'ico';
+        
+        const fallback = document.createElement('span');
+        fallback.className = 'fallback';
+        fallback.textContent = '+';
+        ico.appendChild(fallback);
 
-      const name = document.createElement('span');
-      name.className = 'name';
-      name.textContent = s.title || host;
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = 'Añadir atajo';
 
-      a.appendChild(ico);
-      a.appendChild(name);
-      grid.appendChild(a);
+        addCard.appendChild(ico);
+        addCard.appendChild(name);
+        
+        addCard.addEventListener('click', () => {
+          openShortcutModal(-1);
+        });
+
+        grid.appendChild(addCard);
+      }
     }
+    renderSites();
 
     /* ── Search form ─────────────────────────────── */
     document.getElementById('search-form').addEventListener('submit', e => {
@@ -548,6 +765,80 @@
       loadCustomBg();
       customizeMenu.classList.remove('open');
       bgInput.value = '';
+    });
+
+    /* ── Modal Atajos Logic ──────────────────────── */
+    const shortcutModal = document.getElementById('shortcut-modal');
+    const modalTitle = document.getElementById('modal-shortcut-title');
+    const inputName = document.getElementById('shortcut-name');
+    const inputUrl = document.getElementById('shortcut-url');
+    const btnCancelShortcut = document.getElementById('btn-cancel-shortcut');
+    const btnSaveShortcut = document.getElementById('btn-save-shortcut');
+    
+    let editIndex = -1;
+
+    function openShortcutModal(index) {
+      editIndex = index;
+      if (index === -1) {
+        modalTitle.textContent = 'Añadir atajo';
+        inputName.value = '';
+        inputUrl.value = '';
+      } else {
+        modalTitle.textContent = 'Editar atajo';
+        inputName.value = sites[index].title;
+        inputUrl.value = sites[index].url;
+      }
+      shortcutModal.classList.add('visible');
+      inputName.focus();
+    }
+
+    function closeShortcutModal() {
+      shortcutModal.classList.remove('visible');
+    }
+
+    btnCancelShortcut.addEventListener('click', closeShortcutModal);
+
+    btnSaveShortcut.addEventListener('click', () => {
+      const name = inputName.value.trim();
+      let url = inputUrl.value.trim();
+
+      if (!name || !url) {
+        alert('Por favor, rellena todos los campos.');
+        return;
+      }
+
+      if (!/^[a-z]+:\/\//i.test(url)) {
+        url = 'https://' + url;
+      }
+
+      if (editIndex === -1) {
+        sites.push({ title: name, url: url });
+      } else {
+        sites[editIndex] = { title: name, url: url };
+      }
+
+      localStorage.setItem('rave-custom-sites', JSON.stringify(sites));
+      renderSites();
+      closeShortcutModal();
+    });
+
+    function deleteShortcut(index) {
+      if (confirm(`¿Estás seguro de que quieres eliminar el atajo a ${sites[index].title}?`)) {
+        sites.splice(index, 1);
+        localStorage.setItem('rave-custom-sites', JSON.stringify(sites));
+        renderSites();
+      }
+    }
+
+    // Reset shortcuts button (in customize menu)
+    const btnResetShortcuts = document.getElementById('btn-reset-shortcuts');
+    btnResetShortcuts.addEventListener('click', () => {
+      if (confirm('¿Restablecer los accesos rápidos a los valores predeterminados (basados en tu historial)?')) {
+        localStorage.removeItem('rave-custom-sites');
+        try { sites = JSON.parse(params.get('sites') || '[]'); } catch {}
+        renderSites();
+        customizeMenu.classList.remove('open');
+      }
     });
   </script>
 </body>
