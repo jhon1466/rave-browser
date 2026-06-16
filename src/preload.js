@@ -59,5 +59,10 @@ contextBridge.exposeInMainWorld('rave', {
   winMaximize: () => ipcRenderer.send('rave:win-maximize'),
   winClose: () => ipcRenderer.send('rave:win-close'),
   winIsMaximized: () => ipcRenderer.invoke('rave:win-is-maximized'),
-  onWinState: (cb) => on('rave:win-state', cb)
+  onWinState: (cb) => on('rave:win-state', cb),
+
+  // Pantalla dividida
+  tabSplitToggle: (id) => ipcRenderer.send('rave:tab-split-toggle', id),
+  onTabSplitState: (cb) => on('rave:tab-split-state', cb),
+  onTabSplitFocus: (cb) => on('rave:tab-split-focus', cb),
 });

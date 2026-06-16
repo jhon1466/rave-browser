@@ -116,7 +116,8 @@ window.rave.onTabOpened(({ id, url }) => {
   el.addEventListener('dragend', () => { el.classList.remove('dragging'); syncTabOrder(); });
   tabs.set(id, {
     el, title: 'Nueva pestaña', url, zoom: 1, back: false, fwd: false,
-    favEl: el.querySelector('.favicon'), spinEl: el.querySelector('.spinner'), titleEl: el.querySelector('.title')
+    favEl: el.querySelector('.favicon'), spinEl: el.querySelector('.spinner'), titleEl: el.querySelector('.title'),
+    isSplit: false, activeSide: 'primary'
   });
   saveSession();
 });
@@ -183,6 +184,9 @@ function updateChrome() {
   $('zoom-level').textContent = Math.round(t.zoom * 100) + '%';
   // Mostrar botón lector solo en páginas no internas
   $('reader-btn').style.display = isInternal(t.url) ? 'none' : '';
+
+  updateSplitIndicator();
+  updateSplitButton();
 }
 function setSecurity(url) {
   if (isInternal(url) || !url) { $security.innerHTML = ''; $security.className = ''; return; }
@@ -990,6 +994,7 @@ window.addEventListener('keydown', (e) => {
   else if (c && k === 'h') { e.preventDefault(); openPanel('history'); }
   else if (c && s && k === 'r') { e.preventDefault(); window.rave.injectReader(); }
   else if (c && s && k === 'p') { e.preventDefault(); doCapture(); }
+  else if (c && s && k === 'd') { e.preventDefault(); if (activeId != null) window.rave.tabSplitToggle(activeId); }
   else if (c && k === 'p') { e.preventDefault(); openPanel('passwords'); }
   else if (c && (k === '+' || k === '=')) { e.preventDefault(); applyZoom(0.1); }
   else if (c && k === '-') { e.preventDefault(); applyZoom(-0.1); }
@@ -1017,3 +1022,69 @@ document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = ICONS[
 const saved = INCOGNITO ? [] : store.get('session', []);
 if (saved.length) saved.forEach((u) => createTab(u));
 else createTab();
+
+// ===== Pantalla dividida =====
+function updateSplitIndicator() {
+  const t = activeTab();
+  const $indicator = $('split-indicator');
+  if (!$indicator) return;
+  if (t && t.isSplit) {
+    $indicator.classList.remove('hidden');
+    const side = t.activeSide || 'primary';
+    $indicator.querySelector('.left').classList.toggle('active', side === 'primary');
+    $indicator.querySelector('.right').classList.toggle('active', side === 'secondary');
+  } else {
+    $indicator.classList.add('hidden');
+  }
+}
+
+function updateSplitButton() {
+  const t = activeTab();
+  const $btn = $('split-btn');
+  if (!$btn) return;
+  $btn.classList.toggle('active', !!(t && t.isSplit));
+}
+
+$('split-btn').addEventListener('click', () => {
+  if (activeId !== null) {
+    window.rave.tabSplitToggle(activeId);
+  }
+});
+
+window.rave.onTabSplitState(({ id, isSplit, activeSide }) => {
+  const t = tabs.get(id);
+  if (!t) return;
+  t.isSplit = isSplit;
+  t.activeSide = activeSide;
+  t.el.classList.toggle('split-tab', isSplit);
+  
+  // Manejar icono de división en la pestaña
+  let splitIcon = t.el.querySelector('.tab-split-icon');
+  if (isSplit) {
+    if (!splitIcon) {
+      splitIcon = document.createElement('span');
+      splitIcon.className = 'tab-split-icon';
+      splitIcon.innerHTML = ICONS.split;
+      t.el.insertBefore(splitIcon, t.el.querySelector('.close'));
+    }
+  } else {
+    if (splitIcon) {
+      splitIcon.remove();
+    }
+  }
+  
+  if (id === activeId) {
+    updateSplitIndicator();
+    updateSplitButton();
+  }
+});
+
+window.rave.onTabSplitFocus(({ id, side }) => {
+  const t = tabs.get(id);
+  if (!t) return;
+  t.activeSide = side;
+  if (id === activeId) {
+    updateSplitIndicator();
+  }
+});
+

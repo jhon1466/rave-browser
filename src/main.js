@@ -75,7 +75,17 @@ function relayout(state) {
   const top = state.overlay ? h : state.chromeH;       // overlay: el chrome cubre todo
   state.ui.setBounds({ x: 0, y: 0, width: w, height: Math.round(top) });
   const tab = state.tabs.get(state.activeId);
-  if (tab) tab.view.setBounds({ x: 0, y: Math.round(state.chromeH), width: w, height: Math.round(h - state.chromeH) });
+  if (tab) {
+    const y = Math.round(state.chromeH);
+    const height = Math.round(h - state.chromeH);
+    if (tab.splitView) {
+      const halfW = Math.round(w / 2);
+      tab.view.setBounds({ x: 0, y, width: halfW, height });
+      tab.splitView.setBounds({ x: halfW, y, width: w - halfW, height });
+    } else {
+      tab.view.setBounds({ x: 0, y, width: w, height });
+    }
+  }
   // La interfaz necesita el alto real de la ventana para posicionar overlays
   // (p. ej. el menú contextual), porque su propia vista mide solo el chrome.
   state.ui.webContents.send('rave:view-size', { w, h });
@@ -90,7 +100,7 @@ function openTab(state, url) {
   view.setBackgroundColor(state.incognito ? '#0d0d0f' : '#ffffff');
   state.win.contentView.addChildView(view, 0);          // por debajo de la interfaz
   view.setVisible(false);
-  state.tabs.set(id, { id, view });
+  state.tabs.set(id, { id, view, splitView: null, splitUrl: null, activeFocus: 'primary' });
 
   const wc = view.webContents;
   const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id, ...fields });
@@ -99,16 +109,41 @@ function openTab(state, url) {
     canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
   });
 
-  wc.on('did-start-loading', () => send({ loading: true }));
-  wc.on('did-stop-loading', () => send({ loading: false, ...navState() }));
-  wc.on('page-title-updated', (_e, title) => send({ title }));
-  wc.on('page-favicon-updated', (_e, favicons) => send({ favicon: favicons && favicons[0] }));
-  const onNav = () => { send({ url: wc.getURL(), ...navState() }); maybeYouTube(wc); };
+  wc.on('did-start-loading', () => {
+    const t = state.tabs.get(id);
+    if (!t || t.activeFocus === 'primary') send({ loading: true });
+  });
+  wc.on('did-stop-loading', () => {
+    const t = state.tabs.get(id);
+    if (!t || t.activeFocus === 'primary') send({ loading: false, ...navState() });
+  });
+  wc.on('page-title-updated', (_e, title) => {
+    const t = state.tabs.get(id);
+    if (!t || t.activeFocus === 'primary') send({ title });
+  });
+  wc.on('page-favicon-updated', (_e, favicons) => {
+    const t = state.tabs.get(id);
+    if (!t || t.activeFocus === 'primary') send({ favicon: favicons && favicons[0] });
+  });
+  const onNav = () => {
+    const t = state.tabs.get(id);
+    if (t) t.url = wc.getURL();
+    if (!t || t.activeFocus === 'primary') {
+      send({ url: wc.getURL(), ...navState() });
+    }
+    maybeYouTube(wc);
+  };
   wc.on('did-navigate', onNav);
   wc.on('did-navigate-in-page', onNav);
   wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); });
-  wc.on('found-in-page', (_e, r) => state.ui.webContents.send('rave:tab-found', { id, ...r }));
-  wc.on('context-menu', (_e, p) => state.ui.webContents.send('rave:context-menu', { id, p }));
+  wc.on('found-in-page', (_e, r) => {
+    const t = state.tabs.get(id);
+    if (!t || t.activeFocus === 'primary') state.ui.webContents.send('rave:tab-found', { id, ...r });
+  });
+  wc.on('context-menu', (_e, p) => {
+    const t = state.tabs.get(id);
+    if (!t || t.activeFocus === 'primary') state.ui.webContents.send('rave:context-menu', { id, p });
+  });
   wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
 
   // Da de alta la pestaña en el sistema de extensiones (chrome.tabs + acciones).
@@ -123,10 +158,22 @@ function openTab(state, url) {
 function selectTab(state, id) {
   if (!state.tabs.has(id)) return;
   state.activeId = id;
-  for (const [tid, t] of state.tabs) t.view.setVisible(tid === id);
+  for (const [tid, t] of state.tabs) {
+    const isAct = (tid === id);
+    t.view.setVisible(isAct);
+    if (t.splitView) t.splitView.setVisible(isAct);
+  }
   relayout(state);
   if (extensions && !state.incognito) extensions.selectTab(state.tabs.get(id).view.webContents);
   state.ui.webContents.send('rave:tab-activated', { id });
+  
+  // Sincronizar estado de pantalla dividida a la UI
+  const t = state.tabs.get(id);
+  state.ui.webContents.send('rave:tab-split-state', {
+    id,
+    isSplit: !!t.splitView,
+    activeSide: t.activeFocus || 'primary'
+  });
 }
 
 function closeTab(state, id) {
@@ -134,8 +181,136 @@ function closeTab(state, id) {
   if (!t) return;
   state.win.contentView.removeChildView(t.view);
   t.view.webContents.close();
+  if (t.splitView) {
+    state.win.contentView.removeChildView(t.splitView);
+    t.splitView.webContents.close();
+  }
   state.tabs.delete(id);
   state.ui.webContents.send('rave:tab-closed', { id });
+}
+
+function notifyTabUpdated(state, tabId, wc) {
+  const navState = {
+    canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
+    canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
+  };
+  state.ui.webContents.send('rave:tab-updated', {
+    id: tabId,
+    url: wc.getURL(),
+    title: wc.getTitle() || 'Nueva pestaña',
+    loading: wc.isLoading(),
+    ...navState
+  });
+}
+
+function toggleSplitTab(state, tabId) {
+  const t = state.tabs.get(tabId);
+  if (!t) return;
+
+  if (t.splitView) {
+    // Cerrar pantalla dividida
+    state.win.contentView.removeChildView(t.splitView);
+    t.splitView.webContents.close();
+    t.splitView = null;
+    t.splitUrl = null;
+    t.activeFocus = 'primary';
+    relayout(state);
+    
+    state.ui.webContents.send('rave:tab-split-state', {
+      id: tabId,
+      isSplit: false
+    });
+    
+    notifyTabUpdated(state, tabId, t.view.webContents);
+  } else {
+    // Abrir pantalla dividida
+    const splitView = new WebContentsView({
+      webPreferences: state.incognito ? { partition: state.partition } : {}
+    });
+    splitView.setBackgroundColor(state.incognito ? '#0d0d0f' : '#ffffff');
+    state.win.contentView.addChildView(splitView, 0);
+    
+    t.splitView = splitView;
+    t.activeFocus = 'secondary';
+    
+    const wc = splitView.webContents;
+    const id = tabId;
+    const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id, ...fields });
+    const navState = () => ({
+      canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
+      canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
+    });
+
+    wc.on('did-start-loading', () => {
+      const tab = state.tabs.get(id);
+      if (tab && tab.activeFocus === 'secondary') send({ loading: true });
+    });
+    wc.on('did-stop-loading', () => {
+      const tab = state.tabs.get(id);
+      if (tab && tab.activeFocus === 'secondary') send({ loading: false, ...navState() });
+    });
+    wc.on('page-title-updated', (_e, title) => {
+      const tab = state.tabs.get(id);
+      if (tab && tab.activeFocus === 'secondary') send({ title });
+    });
+    wc.on('page-favicon-updated', (_e, favicons) => {
+      const tab = state.tabs.get(id);
+      if (tab && tab.activeFocus === 'secondary') send({ favicon: favicons && favicons[0] });
+    });
+    
+    const onNav = () => {
+      t.splitUrl = wc.getURL();
+      const tab = state.tabs.get(id);
+      if (tab && tab.activeFocus === 'secondary') {
+        send({ url: wc.getURL(), ...navState() });
+      }
+      maybeYouTube(wc);
+    };
+    wc.on('did-navigate', onNav);
+    wc.on('did-navigate-in-page', onNav);
+    wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); });
+    wc.on('found-in-page', (_e, r) => {
+      const tab = state.tabs.get(id);
+      if (tab && tab.activeFocus === 'secondary') state.ui.webContents.send('rave:tab-found', { id, ...r });
+    });
+    wc.on('context-menu', (_e, p) => {
+      const tab = state.tabs.get(id);
+      if (tab && tab.activeFocus === 'secondary') state.ui.webContents.send('rave:context-menu', { id, p });
+    });
+    wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
+
+    // Enlace de foco para alternar el lado activo
+    t.view.webContents.on('focus', () => {
+      const tab = state.tabs.get(tabId);
+      if (tab && tab.splitView && tab.activeFocus !== 'primary') {
+        tab.activeFocus = 'primary';
+        state.ui.webContents.send('rave:tab-split-focus', { id: tabId, side: 'primary' });
+        notifyTabUpdated(state, tabId, tab.view.webContents);
+      }
+    });
+
+    splitView.webContents.on('focus', () => {
+      const tab = state.tabs.get(tabId);
+      if (tab && tab.splitView && tab.activeFocus !== 'secondary') {
+        tab.activeFocus = 'secondary';
+        state.ui.webContents.send('rave:tab-split-focus', { id: tabId, side: 'secondary' });
+        notifyTabUpdated(state, tabId, splitView.webContents);
+      }
+    });
+
+    // Cargar la página nueva pestaña por defecto en la división
+    const newTabPath = path.join(__dirname, 'renderer', 'newtab.html');
+    wc.loadFile(newTabPath);
+
+    splitView.setVisible(true);
+    relayout(state);
+
+    state.ui.webContents.send('rave:tab-split-state', {
+      id: tabId,
+      isSplit: true,
+      activeSide: 'secondary'
+    });
+  }
 }
 
 function maybeYouTube(wc) {
@@ -281,7 +456,8 @@ ipcMain.handle('rave:capture-page', async (e) => {
   const tab = s.tabs.get(s.activeId);
   if (!tab) return null;
   try {
-    const image = await tab.view.webContents.capturePage();
+    const targetView = (tab.splitView && tab.activeFocus === 'secondary') ? tab.splitView : tab.view;
+    const image = await targetView.webContents.capturePage();
     return image.toDataURL();
   } catch { return null; }
 });
@@ -310,7 +486,8 @@ ipcMain.handle('rave:inject-reader', async (e) => {
   const tab = s.tabs.get(s.activeId);
   if (!tab) return false;
   try {
-    await tab.view.webContents.insertCSS(READER_CSS);
+    const targetView = (tab.splitView && tab.activeFocus === 'secondary') ? tab.splitView : tab.view;
+    await targetView.webContents.insertCSS(READER_CSS);
     return true;
   } catch { return false; }
 });
@@ -319,9 +496,11 @@ ipcMain.handle('rave:inject-reader', async (e) => {
 ipcMain.handle('rave:tab-create', (e, url) => { const s = st(e); return s ? openTab(s, url).id : null; });
 ipcMain.on('rave:tab-select', (e, id) => { const s = st(e); if (s) selectTab(s, id); });
 ipcMain.on('rave:tab-close', (e, id) => { const s = st(e); if (s) closeTab(s, id); });
+ipcMain.on('rave:tab-split-toggle', (e, id) => { const s = st(e); if (s) toggleSplitTab(s, id); });
 ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
   const s = st(e); const t = s && s.tabs.get(id); if (!t) return;
-  const wc = t.view.webContents; const nh = wc.navigationHistory;
+  const targetView = (t.splitView && t.activeFocus === 'secondary') ? t.splitView : t.view;
+  const wc = targetView.webContents; const nh = wc.navigationHistory;
   switch (action) {
     case 'navigate': wc.loadURL(arg); break;
     case 'back': nh ? nh.goBack() : wc.goBack(); break;
