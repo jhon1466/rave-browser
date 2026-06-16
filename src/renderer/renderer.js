@@ -1009,7 +1009,7 @@ window.addEventListener('keydown', (e) => {
   else if (c && k === 'h') { e.preventDefault(); openPanel('history'); }
   else if (c && s && k === 'r') { e.preventDefault(); window.rave.injectReader(); }
   else if (c && s && k === 'p') { e.preventDefault(); doCapture(); }
-  else if (c && s && k === 'd') { e.preventDefault(); if (activeId != null) window.rave.tabSplitToggle(activeId); }
+  else if (c && s && k === 'd') { e.preventDefault(); if (activeId != null) window.rave.tabSplitToggle(activeId, newTabURL()); }
   else if (c && k === 'p') { e.preventDefault(); openPanel('passwords'); }
   else if (c && (k === '+' || k === '=')) { e.preventDefault(); applyZoom(0.1); }
   else if (c && k === '-') { e.preventDefault(); applyZoom(-0.1); }
@@ -1062,7 +1062,7 @@ function updateSplitButton() {
 
 $('split-btn').addEventListener('click', () => {
   if (activeId !== null) {
-    window.rave.tabSplitToggle(activeId);
+    window.rave.tabSplitToggle(activeId, newTabURL());
   }
 });
 

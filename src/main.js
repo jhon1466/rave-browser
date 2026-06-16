@@ -345,7 +345,7 @@ function mergeTabs(state, targetId, sourceId, side) {
   notifyTabUpdated(state, targetId, activeWc);
 }
 
-function toggleSplitTab(state, tabId) {
+function toggleSplitTab(state, tabId, newTabUrl) {
   const t = state.tabs.get(tabId);
   if (!t) return;
 
@@ -410,7 +410,11 @@ function toggleSplitTab(state, tabId) {
 
     // Cargar la página nueva pestaña por defecto en la división
     const newTabPath = path.join(__dirname, 'renderer', 'newtab.html');
-    splitView.webContents.loadFile(newTabPath);
+    if (newTabUrl) {
+      splitView.webContents.loadURL(newTabUrl);
+    } else {
+      splitView.webContents.loadFile(newTabPath);
+    }
 
     // Configurar los escuchadores para ambas partes usando la función helper
     setupPaneListeners(state, tabId, 'primary');
@@ -610,7 +614,7 @@ ipcMain.handle('rave:inject-reader', async (e) => {
 ipcMain.handle('rave:tab-create', (e, url) => { const s = st(e); return s ? openTab(s, url).id : null; });
 ipcMain.on('rave:tab-select', (e, id) => { const s = st(e); if (s) selectTab(s, id); });
 ipcMain.on('rave:tab-close', (e, id) => { const s = st(e); if (s) closeTab(s, id); });
-ipcMain.on('rave:tab-split-toggle', (e, id) => { const s = st(e); if (s) toggleSplitTab(s, id); });
+ipcMain.on('rave:tab-split-toggle', (e, { id, newTabUrl }) => { const s = st(e); if (s) toggleSplitTab(s, id, newTabUrl); });
 ipcMain.on('rave:tab-split-merge', (e, { targetId, sourceId, side }) => { const s = st(e); if (s) mergeTabs(s, targetId, sourceId, side); });
 ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
   const s = st(e); const t = s && s.tabs.get(id); if (!t) return;
