@@ -2,7 +2,7 @@ const { app, BaseWindow, WebContentsView, Menu, session, ipcMain, shell } = requ
 const path = require('path');
 const fs = require('fs');
 const { setupAdblock, enableBlockingOn } = require('./adblock');
-const { installChromeWebStore } = require('electron-chrome-web-store');
+const { installChromeWebStore, uninstallExtension } = require('electron-chrome-web-store');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
 const { setupUpdater, checkNow, quitAndInstall } = require('./updater');
 
@@ -106,7 +106,7 @@ function openTab(state, url) {
   const onNav = () => { send({ url: wc.getURL(), ...navState() }); maybeYouTube(wc); };
   wc.on('did-navigate', onNav);
   wc.on('did-navigate-in-page', onNav);
-  wc.on('dom-ready', () => maybeYouTube(wc));
+  wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); });
   wc.on('found-in-page', (_e, r) => state.ui.webContents.send('rave:tab-found', { id, ...r }));
   wc.on('context-menu', (_e, p) => state.ui.webContents.send('rave:context-menu', { id, p }));
   wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
@@ -141,6 +141,19 @@ function closeTab(state, id) {
 function maybeYouTube(wc) {
   if (/(^|\.)youtube\.com|youtube-nocookie\.com/.test(wc.getURL()))
     wc.executeJavaScript(YT_ADSKIP, true).catch(() => {});
+}
+
+// Detecta formularios con <input type="password"> y notifica la UI.
+async function detectPasswordForms(wc, state, tabId) {
+  try {
+    const found = await wc.executeJavaScript(
+      '!!(document.querySelector(\'input[type="password"]\')); true',
+      true
+    );
+    if (found) {
+      state.ui.webContents.send('rave:password-form-detected', { tabId, url: wc.getURL() });
+    }
+  } catch { /* ignorar si la página está cerrada */ }
 }
 
 // ====== Extensiones de Chrome ======
@@ -226,9 +239,81 @@ const st = (e) => states.get(e.sender.id);
 ipcMain.handle('rave:get-blocked-count', () => global.__raveBlockedCount || 0);
 ipcMain.on('rave:new-incognito', () => createWindow(true));
 ipcMain.handle('rave:list-extensions', (e) => listExtensions(st(e)?.tabSession || session.defaultSession));
+ipcMain.handle('rave:uninstall-extension', async (e, id) => {
+  const ses = st(e)?.tabSession || session.defaultSession;
+  try {
+    await uninstallExtension(id, { session: ses, extensionsPath: EXT_DIR() });
+    return true;
+  } catch (err) {
+    console.error('[Rave] Error al desinstalar extensión:', err);
+    return false;
+  }
+});
 ipcMain.on('rave:open-extensions-folder', () => shell.openPath(EXT_DIR()));
 ipcMain.on('rave:update-check', () => checkNow());
 ipcMain.on('rave:update-install', () => quitAndInstall());
+
+// Cookies
+ipcMain.handle('rave:get-cookies', async (e, url) => {
+  const s = st(e);
+  const ses = s?.tabSession || session.defaultSession;
+  try { return await ses.cookies.get(url ? { url } : {}); } catch { return []; }
+});
+ipcMain.handle('rave:delete-cookie', async (e, { url, name }) => {
+  const s = st(e);
+  const ses = s?.tabSession || session.defaultSession;
+  try { await ses.cookies.remove(url, name); return true; } catch { return false; }
+});
+ipcMain.handle('rave:clear-site-cookies', async (e, url) => {
+  const s = st(e);
+  const ses = s?.tabSession || session.defaultSession;
+  try {
+    const cookies = await ses.cookies.get({ url });
+    for (const c of cookies) await ses.cookies.remove(url, c.name);
+    return true;
+  } catch { return false; }
+});
+
+// Captura de pantalla
+ipcMain.handle('rave:capture-page', async (e) => {
+  const s = st(e);
+  if (!s || !s.activeId) return null;
+  const tab = s.tabs.get(s.activeId);
+  if (!tab) return null;
+  try {
+    const image = await tab.view.webContents.capturePage();
+    return image.toDataURL();
+  } catch { return null; }
+});
+
+// Modo lector — inyecta CSS + JS para simplificar la página
+const READER_CSS = `
+  body { max-width: 720px !important; margin: 40px auto !important; font-family: Georgia, serif !important;
+         font-size: 18px !important; line-height: 1.7 !important; color: #1a1a1a !important;
+         background: #f9f6f0 !important; padding: 0 24px !important; }
+  *:not(body):not(article):not(p):not(h1):not(h2):not(h3):not(h4):not(h5):not(h6):not(img):not(blockquote):not(pre):not(code):not(ul):not(ol):not(li):not(a):not(strong):not(em) {
+         opacity: 0 !important; pointer-events: none !important; height: 0 !important;
+         overflow: hidden !important; position: absolute !important; }
+  article, [role="main"], main, .article, .post, #article, #content, .content, [itemprop="articleBody"]
+  { display: block !important; opacity: 1 !important; pointer-events: auto !important;
+    height: auto !important; overflow: visible !important; position: static !important;
+    max-width: 100% !important; }
+  img { max-width: 100% !important; height: auto !important; opacity: 1 !important;
+        pointer-events: auto !important; position: static !important; }
+  p,li,h1,h2,h3,h4,h5,h6,blockquote,pre,code,strong,em,a {
+    opacity: 1 !important; pointer-events: auto !important;
+    height: auto !important; overflow: visible !important; position: static !important; }
+`;
+ipcMain.handle('rave:inject-reader', async (e) => {
+  const s = st(e);
+  if (!s || !s.activeId) return false;
+  const tab = s.tabs.get(s.activeId);
+  if (!tab) return false;
+  try {
+    await tab.view.webContents.insertCSS(READER_CSS);
+    return true;
+  } catch { return false; }
+});
 
 // Pestañas
 ipcMain.handle('rave:tab-create', (e, url) => { const s = st(e); return s ? openTab(s, url).id : null; });

@@ -35,16 +35,30 @@
         <button id="star" class="in-addr" data-icon="star" title="Guardar marcador (Ctrl+D)"></button>
         <div id="suggest" class="hidden"></div>
       </div>
+      <button id="reader-btn" class="icon-btn" data-icon="book" title="Modo lector (Ctrl+Shift+R)" id="reader-btn"></button>
       <button id="shield" class="icon-btn shield-btn" title="Anuncios y rastreadores bloqueados">
         <span data-icon="shield"></span><span id="shield-count">0</span>
       </button>
       <button id="ext-btn" class="icon-btn" data-icon="puzzle" title="Extensiones"></button>
       <button id="menu-btn" class="icon-btn" data-icon="menu" title="Menú"></button>
 
+      <!-- Desplegable del Escudo (Adblocker) -->
+      <div id="shield-menu" class="hidden">
+        <div class="shield-head">Escudo Rave</div>
+        <div class="shield-stat-row">
+          <span class="shield-stat-num" id="shield-menu-count">0</span>
+          <span class="shield-stat-txt">elementos bloqueados en esta sesión</span>
+        </div>
+        <div class="sep"></div>
+        <div class="shield-info">
+          Protección activa de nivel uBlock Origin (EasyList + reglas de uBO) bloqueando anuncios y rastreadores invasivos de privacidad.
+        </div>
+      </div>
+
       <!-- Desplegable de extensiones (estilo Edge) -->
       <div id="ext-menu" class="hidden">
         <div class="ext-head">Extensiones</div>
-        <browser-action-list alignment="bottom right"></browser-action-list>
+        <browser-action-list alignment="bottom left"></browser-action-list>
         <div class="ext-empty">No hay extensiones con icono. Instala alguna desde la tienda.</div>
         <div class="sep"></div>
         <button class="ext-manage" data-act="webstore"><span data-icon="download"></span> Obtener extensiones</button>
@@ -57,6 +71,13 @@
         <button data-act="bookmarks"><span data-icon="star"></span> Marcadores</button>
         <button data-act="history"><span data-icon="clock"></span> Historial</button>
         <button data-act="downloads"><span data-icon="download"></span> Descargas</button>
+        <div class="sep"></div>
+        <button data-act="passwords"><span data-icon="key"></span> Contraseñas</button>
+        <button data-act="cookies"><span data-icon="cookie"></span> Cookies del sitio</button>
+        <button data-act="notes"><span data-icon="note"></span> Notas</button>
+        <button data-act="sessions"><span data-icon="layers"></span> Sesiones guardadas</button>
+        <button data-act="capture"><span data-icon="camera"></span> Captura de pantalla</button>
+        <div class="sep"></div>
         <button data-act="webstore"><span data-icon="download"></span> Tienda de extensiones (Chrome)</button>
         <button data-act="extensions"><span data-icon="settings"></span> Extensiones instaladas</button>
         <div class="sep"></div>
@@ -88,6 +109,14 @@
       <button id="find-next" class="icon-btn" title="Siguiente">&#8250;</button>
       <button id="find-close" class="icon-btn" data-icon="close" title="Cerrar"></button>
     </div>
+  </div>
+
+  <!-- Aviso de guardar contraseña -->
+  <div id="pw-save-bar" class="hidden">
+    <span id="pw-save-icon" data-icon="key"></span>
+    <span id="pw-save-msg">¿Guardar contraseña para este sitio?</span>
+    <button id="pw-save-yes" class="btn" style="height:26px;padding:0 12px;font-size:12px">Guardar</button>
+    <button id="pw-save-no" class="btn ghost" style="height:26px;padding:0 10px;font-size:12px">No</button>
   </div>
 
   <!-- Avisos de descarga -->

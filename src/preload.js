@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('rave', {
   onTabUpdated: (cb) => on('rave:tab-updated', cb),
   onTabFound: (cb) => on('rave:tab-found', cb),
   onContextMenu: (cb) => on('rave:context-menu', cb),
+  onPasswordFormDetected: (cb) => on('rave:password-form-detected', cb),
 
   // Disposición (la interfaz le dice al main dónde empieza la página)
   setLayout: (chromeH) => ipcRenderer.send('rave:set-layout', { chromeH }),
@@ -30,7 +31,19 @@ contextBridge.exposeInMainWorld('rave', {
   newIncognito: () => ipcRenderer.send('rave:new-incognito'),
   copyText: (t) => clipboard.writeText(t),
   listExtensions: () => ipcRenderer.invoke('rave:list-extensions'),
+  uninstallExtension: (id) => ipcRenderer.invoke('rave:uninstall-extension', id),
   openExtensionsFolder: () => ipcRenderer.send('rave:open-extensions-folder'),
+
+  // Cookies
+  getCookies: (url) => ipcRenderer.invoke('rave:get-cookies', url),
+  deleteCookie: (url, name) => ipcRenderer.invoke('rave:delete-cookie', { url, name }),
+  clearSiteCookies: (url) => ipcRenderer.invoke('rave:clear-site-cookies', url),
+
+  // Captura de pantalla
+  capturePage: () => ipcRenderer.invoke('rave:capture-page'),
+
+  // Modo lector
+  injectReader: () => ipcRenderer.invoke('rave:inject-reader'),
 
   // Descargas
   onDownloadStarted: (cb) => on('rave:download-started', cb),
