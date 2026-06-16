@@ -71,7 +71,7 @@ async function setupAdblock(ses) {
     // enableHtmlFiltering/scriptlets van activados por defecto en el engine.
     blocker = await ElectronBlocker.fromLists(fetch, FILTER_LISTS, {
       enableCompression: true,
-      loadCosmeticFilters: true,
+      loadCosmeticFilters: false,   // Desactivado: causa RangeError en SPAs complejas (ChatGPT, etc.)
       loadNetworkFilters: true
     }, caching);
   } catch (err) {

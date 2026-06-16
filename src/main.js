@@ -103,6 +103,7 @@ function openTab(state, url) {
   state.tabs.set(id, { id, view, splitView: null, splitUrl: null, activeFocus: 'primary' });
 
   const wc = view.webContents;
+  wc.setMaxListeners(30); // Prevenir MaxListenersExceededWarning al usar pantalla dividida
   const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id, ...fields });
   const navState = () => ({
     canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
@@ -210,7 +211,8 @@ function setupPaneListeners(state, tabId, side) {
   if (!view) return;
   const wc = view.webContents;
 
-  // Limpiar anteriores
+  // Limpiar anteriores y ampliar el límite de escuchadores
+  wc.setMaxListeners(30);
   wc.removeAllListeners('did-start-loading');
   wc.removeAllListeners('did-stop-loading');
   wc.removeAllListeners('page-title-updated');
