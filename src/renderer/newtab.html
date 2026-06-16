@@ -576,26 +576,31 @@
     }
 
     /* ── Top sites ───────────────────────────────── */
-    let sites = [];
-    const customSitesStr = localStorage.getItem('rave-custom-sites');
-    if (customSitesStr) {
-      try { sites = JSON.parse(customSitesStr); } catch {}
-    } else {
-      try { sites = JSON.parse(params.get('sites') || '[]'); } catch {}
-    }
-
     const grid = document.getElementById('sites');
     const wrap = document.getElementById('sites-wrap');
 
-    function renderSites() {
-      grid.innerHTML = '';
-      if (sites.length === 0 && !customSitesStr) {
-        wrap.style.display = 'none';
-        return;
+    function getSitesList() {
+      const customSitesStr = localStorage.getItem('rave-custom-sites');
+      if (customSitesStr) {
+        try {
+          return JSON.parse(customSitesStr);
+        } catch (e) {
+          return [];
+        }
       }
+      try {
+        return JSON.parse(params.get('sites') || '[]');
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function renderSites() {
+      const sitesList = getSitesList();
+      grid.innerHTML = '';
       wrap.style.display = 'block';
 
-      sites.forEach((s, idx) => {
+      sitesList.forEach((s, idx) => {
         let host = '';
         try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch { return; }
 
@@ -670,8 +675,8 @@
         grid.appendChild(a);
       });
 
-      // Add "+" shortcut button if less than 8
-      if (sites.length < 8) {
+      // Always show "+" shortcut button if less than 12 shortcuts
+      if (sitesList.length < 12) {
         const addCard = document.createElement('div');
         addCard.className = 'site add-shortcut-btn';
         addCard.id = 'btn-add-shortcut';
@@ -885,14 +890,15 @@
 
     function openShortcutModal(index) {
       editIndex = index;
+      const currentSites = getSitesList();
       if (index === -1) {
         modalTitle.textContent = 'Añadir atajo';
         inputName.value = '';
         inputUrl.value = '';
       } else {
         modalTitle.textContent = 'Editar atajo';
-        inputName.value = sites[index].title;
-        inputUrl.value = sites[index].url;
+        inputName.value = currentSites[index].title;
+        inputUrl.value = currentSites[index].url;
       }
       shortcutModal.classList.add('visible');
       inputName.focus();
@@ -917,21 +923,23 @@
         url = 'https://' + url;
       }
 
+      const currentSites = getSitesList();
       if (editIndex === -1) {
-        sites.push({ title: name, url: url });
+        currentSites.push({ title: name, url: url });
       } else {
-        sites[editIndex] = { title: name, url: url };
+        currentSites[editIndex] = { title: name, url: url };
       }
 
-      localStorage.setItem('rave-custom-sites', JSON.stringify(sites));
+      localStorage.setItem('rave-custom-sites', JSON.stringify(currentSites));
       renderSites();
       closeShortcutModal();
     });
 
     function deleteShortcut(index) {
-      if (confirm(`¿Estás seguro de que quieres eliminar el atajo a ${sites[index].title}?`)) {
-        sites.splice(index, 1);
-        localStorage.setItem('rave-custom-sites', JSON.stringify(sites));
+      const currentSites = getSitesList();
+      if (confirm(`¿Estás seguro de que quieres eliminar el atajo a ${currentSites[index].title}?`)) {
+        currentSites.splice(index, 1);
+        localStorage.setItem('rave-custom-sites', JSON.stringify(currentSites));
         renderSites();
       }
     }
@@ -941,7 +949,6 @@
     btnResetShortcuts.addEventListener('click', () => {
       if (confirm('¿Restablecer los accesos rápidos a los valores predeterminados (basados en tu historial)?')) {
         localStorage.removeItem('rave-custom-sites');
-        try { sites = JSON.parse(params.get('sites') || '[]'); } catch {}
         renderSites();
         customizeMenu.classList.remove('open');
       }
