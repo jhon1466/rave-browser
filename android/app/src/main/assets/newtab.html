@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Rave</title>
+  <style>
+    :root { --bg:#fff; --ink:#0a0a0a; --soft:#6b6b70; --border:#d8d8dc; --surface:#f4f4f5; }
+    @media (prefers-color-scheme: dark){
+      :root{ --bg:#0d0d0f; --ink:#f5f5f5; --soft:#9a9aa0; --border:#2e2e33; --surface:#161618; }
+    }
+    *{box-sizing:border-box;margin:0}
+    html,body{height:100%;font-family:-apple-system,"Segoe UI",Roboto,system-ui,sans-serif;
+      background:var(--bg);color:var(--ink);display:grid;place-items:center}
+    .wrap{width:88vw;max-width:560px;text-align:center;margin-top:-12vh}
+    .logo{font-size:56px;font-weight:800;letter-spacing:-2px}
+    .logo .dot{color:var(--soft)}
+    .tag{color:var(--soft);font-size:13px;margin:6px 0 28px}
+    form{display:flex}
+    input{flex:1;height:52px;padding:0 20px;font-size:16px;color:var(--ink);
+      background:var(--surface);border:1px solid var(--border);border-radius:26px;outline:none}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">Rave<span class="dot">.</span></div>
+    <div class="tag">Minimalista · Privado · Sin anuncios</div>
+    <form id="f">
+      <input id="q" autofocus placeholder="Busca o escribe una dirección" />
+    </form>
+  </div>
+  <script>
+    document.getElementById('f').addEventListener('submit', function(e){
+      e.preventDefault();
+      var t = document.getElementById('q').value.trim();
+      if(!t) return;
+      if(/^[a-z]+:\/\//i.test(t)) location.href = t;
+      else if(/^[^\s]+\.[^\s]+$/.test(t) && t.indexOf(' ')<0) location.href = 'https://'+t;
+      else location.href = 'https://duckduckgo.com/?q='+encodeURIComponent(t);
+    });
+  </script>
+</body>
+</html>

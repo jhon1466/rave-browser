@@ -1,0 +1,491 @@
+/* ===== Rave — paleta monocromática ===== */
+:root {
+  --bg:        #ffffff;  /* fondo principal */
+  --surface:   #f4f4f5;  /* superficies (barras) */
+  --surface-2: #e7e7ea;  /* hover / pestaña inactiva */
+  --border:    #d8d8dc;  /* líneas finas */
+  --ink:       #0a0a0a;  /* texto / iconos */
+  --ink-soft:  #6b6b70;  /* texto secundario */
+  --accent:    #111111;  /* acento (pestaña activa) */
+  --radius:    10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:        #0d0d0f;
+    --surface:   #161618;
+    --surface-2: #232327;
+    --border:    #2e2e33;
+    --ink:       #f5f5f5;
+    --ink-soft:  #9a9aa0;
+    --accent:    #ffffff;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  background: transparent;   /* la página la dibuja el proceso principal, detrás */
+  color: var(--ink);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* El chrome (interfaz) es lo único opaco; ocupa solo su altura natural. */
+#chrome { background: var(--surface); }
+
+/* ===== Pestañas ===== */
+#tabbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 0 8px;
+  background: var(--surface);
+  /* Toda la barra es zona de arrastre de la ventana... */
+  -webkit-app-region: drag;
+}
+/* ...salvo los elementos interactivos. */
+#tabbar .tab,
+#tabbar .icon-btn,
+#tabbar .win-btn,
+#tabbar #tabs {
+  -webkit-app-region: no-drag;
+}
+
+/* Espacio flexible que rellena la barra (zona de arrastre). */
+#drag-spacer { flex: 1; min-width: 20px; }
+
+/* ===== Controles de ventana ===== */
+#win-controls { display: flex; gap: 2px; -webkit-app-region: no-drag; }
+.win-btn {
+  width: 40px; height: 30px;
+  display: grid; place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.win-btn:hover { background: var(--surface-2); color: var(--ink); }
+.win-close:hover { background: #e81123; color: #fff; }
+
+#tabs { display: flex; gap: 4px; flex: 0 1 auto; overflow-x: auto; }
+#tabs::-webkit-scrollbar { height: 0; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 120px;
+  max-width: 220px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-size: 13px;
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background .12s ease, color .12s ease;
+}
+.tab:hover { background: var(--border); }
+.tab.dragging { opacity: .45; }
+.tab.active {
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 500;
+}
+.tab .favicon {
+  width: 16px; height: 16px; flex: none;
+  border-radius: 3px; object-fit: contain;
+}
+.tab .favicon.hidden { display: none; }
+.tab .spinner {
+  width: 14px; height: 14px; flex: none;
+  border: 2px solid var(--border);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.tab .title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab .close {
+  width: 18px; height: 18px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  font-size: 14px; line-height: 1;
+  color: var(--ink-soft);
+}
+.tab .close:hover { background: var(--ink); color: var(--bg); }
+
+/* ===== Botones de icono ===== */
+.icon-btn {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 17px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background .12s ease;
+}
+.icon-btn:hover { background: var(--surface-2); }
+.icon-btn:disabled { color: var(--border); cursor: default; background: transparent; }
+
+#new-tab { font-size: 20px; }
+
+/* ===== Barra de navegación ===== */
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+#address-wrap { flex: 1; position: relative; }
+
+/* Estrella de marcador dentro de la barra de direcciones */
+.in-addr {
+  position: absolute;
+  right: 6px; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px;
+  display: grid; place-items: center;
+  border: none; background: transparent;
+  color: var(--ink-soft); font-size: 16px;
+  border-radius: 50%; cursor: pointer;
+}
+.in-addr:hover { background: var(--surface-2); color: var(--ink); }
+.in-addr.saved { color: var(--ink); }
+#address { padding-right: 40px; }
+
+#address {
+  width: 100%;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+  user-select: text;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+#address:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+#shield {
+  font-size: 12px;
+  color: var(--ink-soft);
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+/* (La página ya no se renderiza aquí: cada pestaña es un WebContentsView
+   gestionado por el proceso principal, dibujado bajo este chrome.) */
+
+/* ===== Menú desplegable ===== */
+#menu {
+  position: absolute;
+  top: 86px; right: 10px;
+  width: 250px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.18);
+  z-index: 50;
+  display: flex; flex-direction: column; gap: 2px;
+}
+#menu button {
+  display: flex; align-items: center;
+  width: 100%; padding: 10px 12px;
+  border: none; background: transparent;
+  color: var(--ink); font-size: 13px; text-align: left;
+  border-radius: 8px; cursor: pointer;
+}
+#menu button:hover { background: var(--surface-2); }
+#menu .sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+/* ===== Barra de marcadores ===== */
+#bookmarks-bar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto; white-space: nowrap;
+}
+#bookmarks-bar::-webkit-scrollbar { height: 0; }
+#bookmarks-bar:empty { display: none; }
+.bm {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 10px; max-width: 200px;
+  font-size: 12px; color: var(--ink-soft);
+  border-radius: 7px; cursor: pointer;
+}
+.bm:hover { background: var(--surface-2); color: var(--ink); }
+.bm .bm-title { overflow: hidden; text-overflow: ellipsis; }
+
+/* ===== Panel overlay (marcadores / historial / ajustes) ===== */
+#panel {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.35);
+  display: grid; place-items: start center;
+  padding-top: 90px;
+  z-index: 100;
+}
+#panel-card {
+  width: min(720px, 92vw); max-height: 78vh;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+#panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 16px; font-weight: 600;
+}
+#panel-body { padding: 10px 10px 16px; overflow-y: auto; user-select: text; }
+
+/* Listas (marcadores / historial) */
+.row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px; font-size: 13px;
+}
+.row:hover { background: var(--surface-2); }
+.row .r-main { flex: 1; min-width: 0; cursor: pointer; }
+.row .r-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .r-url { font-size: 11px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .r-del {
+  border: none; background: transparent; color: var(--ink-soft);
+  cursor: pointer; font-size: 16px; padding: 4px 8px; border-radius: 6px;
+}
+.row .r-del:hover { background: var(--ink); color: var(--bg); }
+.empty { padding: 30px; text-align: center; color: var(--ink-soft); font-size: 13px; }
+.panel-actions { padding: 8px 12px; text-align: right; }
+
+/* Ajustes */
+.set-row { padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.set-row label { font-size: 13px; font-weight: 500; }
+.set-row select, .set-row input {
+  height: 36px; padding: 0 12px;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; outline: none; user-select: text;
+}
+.btn {
+  height: 34px; padding: 0 16px;
+  background: var(--ink); color: var(--bg);
+  border: none; border-radius: 8px; font-size: 13px;
+  cursor: pointer; font-weight: 500;
+}
+.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--border); }
+
+.hidden { display: none !important; }
+
+/* ===== Temas manuales (sobre el automático) ===== */
+html[data-theme="light"] {
+  --bg:#ffffff; --surface:#f4f4f5; --surface-2:#e7e7ea;
+  --border:#d8d8dc; --ink:#0a0a0a; --ink-soft:#6b6b70; --accent:#111111;
+}
+html[data-theme="dark"] {
+  --bg:#0d0d0f; --surface:#161618; --surface-2:#232327;
+  --border:#2e2e33; --ink:#f5f5f5; --ink-soft:#9a9aa0; --accent:#ffffff;
+}
+
+/* ===== Iconos en botones ===== */
+[data-icon] svg { display: block; }
+.icon-btn[data-icon] svg { width: 18px; height: 18px; }
+
+/* ===== Indicador de seguridad en la barra ===== */
+#security {
+  position: absolute;
+  left: 10px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px;
+  display: grid; place-items: center;
+  color: var(--ink-soft);
+  pointer-events: none;
+}
+#security svg { width: 15px; height: 15px; }
+#security.secure { color: var(--ink); }
+#address { padding-left: 36px; }
+
+/* ===== Botón escudo con contador ===== */
+.shield-btn {
+  width: auto !important;
+  gap: 5px; padding: 0 9px;
+  display: inline-flex; align-items: center;
+}
+.shield-btn svg { width: 17px; height: 17px; }
+#shield-count { font-size: 11px; color: var(--ink-soft); min-width: 10px; }
+
+/* ===== Barra de progreso ===== */
+#progress {
+  height: 2px; width: 0%;
+  background: var(--ink);
+  transition: width .2s ease, opacity .3s ease;
+  opacity: 0;
+}
+#progress.loading { opacity: 1; }
+
+/* ===== Menú: zoom ===== */
+#menu button span[data-icon] svg { width: 16px; height: 16px; }
+#menu button span[data-icon] { display: inline-flex; margin-right: 4px; }
+.menu-zoom {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; font-size: 13px;
+}
+.menu-zoom button {
+  width: 30px; height: 30px; padding: 0 !important;
+  display: grid !important; place-items: center;
+  border: 1px solid var(--border); border-radius: 7px; background: transparent;
+}
+.menu-zoom #zoom-level { flex: 1; text-align: center; color: var(--ink-soft); }
+
+/* ===== Sugerencias de autocompletado ===== */
+#suggest {
+  position: absolute;
+  top: calc(100% + 6px); left: 0; right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.18);
+  padding: 6px; z-index: 60;
+  max-height: 320px; overflow-y: auto;
+}
+.sg {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.sg.active, .sg:hover { background: var(--surface-2); }
+.sg .sg-ic { color: var(--ink-soft); display: inline-flex; }
+.sg .sg-ic svg { width: 15px; height: 15px; }
+.sg .sg-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg .sg-url { color: var(--ink-soft); font-size: 11px; }
+
+/* ===== Buscar en página (barra en flujo) ===== */
+#find-bar {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.find-ic { color: var(--ink-soft); display: inline-flex; margin: 0 4px; }
+.find-ic svg { width: 16px; height: 16px; }
+#find-input {
+  flex: 1; height: 30px; padding: 0 6px;
+  border: none; outline: none; background: transparent;
+  color: var(--ink); font-size: 13px; user-select: text;
+}
+#find-count { font-size: 12px; color: var(--ink-soft); padding: 0 6px; white-space: nowrap; }
+#find-bar .icon-btn { width: 30px; height: 30px; font-size: 18px; }
+
+/* ===== Avisos (toasts) de descarga ===== */
+#toasts {
+  position: fixed; right: 16px; bottom: 16px; z-index: 200;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px; min-width: 240px; max-width: 320px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.22);
+  font-size: 13px;
+  animation: toast-in .2s ease;
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+.toast .t-ic { color: var(--ink); display: inline-flex; }
+.toast .t-body { flex: 1; min-width: 0; }
+.toast .t-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast .t-sub { color: var(--ink-soft); font-size: 11px; }
+
+/* ===== Desplegable de extensiones ===== */
+#ext-menu {
+  position: absolute;
+  top: 86px; right: 46px;
+  width: 280px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 14px 38px rgba(0,0,0,.22);
+  z-index: 60;
+}
+#ext-menu .ext-head { font-size: 13px; font-weight: 600; padding: 4px 8px 8px; }
+#ext-menu browser-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Botones de acción de cada extensión (web component, Shadow DOM). */
+#ext-menu browser-action-list::part(action) {
+  width: 100%;
+  height: 40px;
+  border-radius: 8px;
+  justify-content: flex-start;
+  padding: 0 10px;
+  background-size: 20px;
+}
+#ext-menu browser-action-list::part(action):hover { background-color: var(--surface-2); }
+/* Si no hay extensiones con icono, el componente queda vacío: mostramos aviso. */
+#ext-menu .ext-empty { font-size: 12px; color: var(--ink-soft); padding: 6px 8px; }
+#ext-menu browser-action-list:not(:empty) + .ext-empty { display: none; }
+#ext-menu .ext-manage {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 9px 10px; margin-top: 2px;
+  border: none; background: transparent; color: var(--ink);
+  font-size: 13px; text-align: left; border-radius: 8px; cursor: pointer;
+}
+#ext-menu .ext-manage:hover { background: var(--surface-2); }
+#ext-menu .ext-manage span[data-icon] { display: inline-flex; }
+#ext-menu .ext-manage span[data-icon] svg { width: 16px; height: 16px; }
+
+/* ===== Menú contextual (clic derecho) ===== */
+#ctx {
+  position: fixed;
+  min-width: 200px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 14px 38px rgba(0,0,0,.24);
+  z-index: 300;
+}
+#ctx button {
+  display: block; width: 100%;
+  padding: 9px 12px; text-align: left;
+  border: none; background: transparent;
+  color: var(--ink); font-size: 13px;
+  border-radius: 7px; cursor: pointer;
+}
+#ctx button:hover { background: var(--surface-2); }
+#ctx button:disabled { color: var(--border); cursor: default; background: transparent; }
+#ctx .sep { height: 1px; background: var(--border); margin: 4px 6px; }
+
+/* ===== Indicador de incógnito ===== */
+body.incognito #toolbar::before {
+  content: "Incógnito";
+  position: absolute; left: 50%; transform: translateX(-50%);
+  font-size: 11px; color: var(--ink-soft);
+  pointer-events: none;
+}

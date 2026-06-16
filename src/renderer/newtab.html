@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rave</title>
+  <style>
+    :root {
+      --bg: #ffffff; --ink: #0a0a0a; --soft: #6b6b70;
+      --border: #d8d8dc; --surface: #f4f4f5;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0d0d0f; --ink:#f5f5f5; --soft:#9a9aa0; --border:#2e2e33; --surface:#161618; }
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body {
+      height: 100%;
+      font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+      background: var(--bg); color: var(--ink);
+      display: grid; place-items: center;
+    }
+    .wrap { width: min(620px, 88vw); text-align: center; margin-top: -6vh; }
+    .logo {
+      font-size: 64px; font-weight: 800; letter-spacing: -2px;
+      margin-bottom: 4px;
+    }
+    .logo .dot { color: var(--soft); }
+    .tag { color: var(--soft); font-size: 13px; margin-bottom: 32px; letter-spacing: .5px; }
+    form { display: flex; }
+    input {
+      flex: 1; height: 52px; padding: 0 22px;
+      font-size: 16px; color: var(--ink);
+      background: var(--surface);
+      border: 1px solid var(--border); border-radius: 26px;
+      outline: none; transition: border-color .12s, box-shadow .12s;
+    }
+    input:focus {
+      border-color: var(--ink);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 10%, transparent);
+    }
+    input::placeholder { color: var(--soft); }
+
+    /* Accesos rápidos */
+    #sites {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px 12px;
+    }
+    .site {
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      padding: 14px 8px;
+      border-radius: 14px;
+      cursor: pointer;
+      text-decoration: none; color: var(--ink);
+      transition: background .12s ease;
+    }
+    .site:hover { background: var(--surface); }
+    .site .ico {
+      width: 46px; height: 46px;
+      display: grid; place-items: center;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      overflow: hidden;
+    }
+    .site:hover .ico { background: var(--bg); }
+    .site .ico img { width: 26px; height: 26px; object-fit: contain; }
+    .site .ico .fallback { font-size: 20px; font-weight: 700; color: var(--soft); }
+    .site .name {
+      font-size: 12px; max-width: 100%;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    @media (max-width: 480px) { #sites { grid-template-columns: repeat(3, 1fr); } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">Rave<span class="dot">.</span></div>
+    <div class="tag">Minimalista · Privado · Sin anuncios</div>
+    <form id="f">
+      <input id="q" autofocus spellcheck="false"
+             placeholder="Busca en la web o escribe una dirección" />
+    </form>
+    <div id="sites"></div>
+  </div>
+  <script>
+    // El motor de búsqueda real lo decide Rave; aquí leemos el que pasó por la URL.
+    const params = new URLSearchParams(location.search);
+    const engine = params.get('engine') || 'https://duckduckgo.com/?q=';
+
+    // Accesos rápidos (sitios sugeridos).
+    let sites = [];
+    try { sites = JSON.parse(params.get('sites') || '[]'); } catch {}
+    const grid = document.getElementById('sites');
+    for (const s of sites) {
+      let host = '';
+      try { host = new URL(s.url).hostname.replace(/^www\./, ''); } catch { continue; }
+      const a = document.createElement('a');
+      a.className = 'site';
+      a.href = s.url;
+      a.title = s.url;
+      const letter = (s.title || host || '?').trim().charAt(0).toUpperCase();
+      a.innerHTML =
+        `<span class="ico"><img alt="" /><span class="fallback" style="display:none">${letter}</span></span>` +
+        `<span class="name"></span>`;
+      a.querySelector('.name').textContent = s.title || host;
+      const img = a.querySelector('img');
+      // Favicon vía servicio de DuckDuckGo (privado). Si falla, muestra la inicial.
+      img.src = 'https://icons.duckduckgo.com/ip3/' + host + '.ico';
+      img.onerror = () => { img.style.display = 'none'; a.querySelector('.fallback').style.display = 'block'; };
+      grid.appendChild(a);
+    }
+    document.getElementById('f').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const t = document.getElementById('q').value.trim();
+      if (!t) return;
+      if (/^[a-z]+:\/\//i.test(t)) location.href = t;
+      else if (/^[^\s]+\.[^\s]+$/.test(t) && !t.includes(' ')) location.href = 'https://' + t;
+      else location.href = engine + encodeURIComponent(t);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "rave",
+  "version": "0.1.0",
+  "description": "Rave — un navegador minimalista en blanco, negro y gris basado en Chromium (Electron).",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "publish": "electron-builder --publish always"
+  },
+  "author": "",
+  "license": "MIT",
+  "build": {
+    "appId": "com.rave.browser",
+    "productName": "Rave",
+    "files": ["src/**/*", "node_modules/**/*", "package.json"],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://TU-SERVIDOR.com/rave/updates/"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.18.0",
+    "cross-fetch": "^4.1.0",
+    "electron-chrome-extensions": "^4.9.0",
+    "electron-chrome-web-store": "^0.13.0",
+    "electron-updater": "^6.8.9"
+  }
+}

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: crx:; script-src 'self';" />
+  <title>Rave</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ===== Chrome (interfaz) ===== -->
+  <div id="chrome">
+    <!-- Barra de pestañas -->
+    <div id="tabbar">
+      <div id="tabs"></div>
+      <button id="new-tab" class="icon-btn" data-icon="plus" title="Nueva pestaña (Ctrl+T)"></button>
+      <div id="drag-spacer"></div>
+      <div id="win-controls">
+        <button id="win-min" class="win-btn" data-icon="win_min" title="Minimizar"></button>
+        <button id="win-max" class="win-btn" data-icon="win_max" title="Maximizar"></button>
+        <button id="win-close" class="win-btn win-close" data-icon="win_close" title="Cerrar"></button>
+      </div>
+    </div>
+
+    <!-- Barra de navegación -->
+    <div id="toolbar">
+      <button id="back" class="icon-btn" data-icon="back" title="Atrás"></button>
+      <button id="forward" class="icon-btn" data-icon="forward" title="Adelante"></button>
+      <button id="reload" class="icon-btn" data-icon="reload" title="Recargar (Ctrl+R)"></button>
+      <button id="home" class="icon-btn" data-icon="home" title="Inicio"></button>
+      <div id="address-wrap">
+        <span id="security" title="Seguridad"></span>
+        <input id="address" type="text" spellcheck="false"
+               placeholder="Busca o escribe una dirección" autocomplete="off" />
+        <button id="star" class="in-addr" data-icon="star" title="Guardar marcador (Ctrl+D)"></button>
+        <div id="suggest" class="hidden"></div>
+      </div>
+      <button id="shield" class="icon-btn shield-btn" title="Anuncios y rastreadores bloqueados">
+        <span data-icon="shield"></span><span id="shield-count">0</span>
+      </button>
+      <button id="ext-btn" class="icon-btn" data-icon="puzzle" title="Extensiones"></button>
+      <button id="menu-btn" class="icon-btn" data-icon="menu" title="Menú"></button>
+
+      <!-- Desplegable de extensiones (estilo Edge) -->
+      <div id="ext-menu" class="hidden">
+        <div class="ext-head">Extensiones</div>
+        <browser-action-list alignment="bottom right"></browser-action-list>
+        <div class="ext-empty">No hay extensiones con icono. Instala alguna desde la tienda.</div>
+        <div class="sep"></div>
+        <button class="ext-manage" data-act="webstore"><span data-icon="download"></span> Obtener extensiones</button>
+        <button class="ext-manage" data-act="extensions"><span data-icon="settings"></span> Administrar extensiones</button>
+      </div>
+
+      <div id="menu" class="hidden">
+        <button data-act="incognito"><span data-icon="incognito"></span> Nueva ventana de incógnito</button>
+        <div class="sep"></div>
+        <button data-act="bookmarks"><span data-icon="star"></span> Marcadores</button>
+        <button data-act="history"><span data-icon="clock"></span> Historial</button>
+        <button data-act="downloads"><span data-icon="download"></span> Descargas</button>
+        <button data-act="webstore"><span data-icon="download"></span> Tienda de extensiones (Chrome)</button>
+        <button data-act="extensions"><span data-icon="settings"></span> Extensiones instaladas</button>
+        <div class="sep"></div>
+        <div class="menu-zoom">
+          <span>Zoom</span>
+          <button data-act="zoom-out" data-icon="zoomOut" title="Alejar"></button>
+          <span id="zoom-level">100%</span>
+          <button data-act="zoom-in" data-icon="zoomIn" title="Acercar"></button>
+        </div>
+        <div class="sep"></div>
+        <button data-act="find"><span data-icon="search"></span> Buscar en la página (Ctrl+F)</button>
+        <button data-act="update"><span data-icon="reload"></span> Buscar actualizaciones</button>
+        <button data-act="settings"><span data-icon="settings"></span> Ajustes</button>
+      </div>
+    </div>
+
+    <!-- Barra de progreso -->
+    <div id="progress"></div>
+
+    <!-- Barra de marcadores -->
+    <div id="bookmarks-bar"></div>
+
+    <!-- Buscar en página (en flujo: empuja la página hacia abajo) -->
+    <div id="find-bar" class="hidden">
+      <span data-icon="search" class="find-ic"></span>
+      <input id="find-input" placeholder="Buscar en la página" spellcheck="false" />
+      <span id="find-count"></span>
+      <button id="find-prev" class="icon-btn" title="Anterior">&#8249;</button>
+      <button id="find-next" class="icon-btn" title="Siguiente">&#8250;</button>
+      <button id="find-close" class="icon-btn" data-icon="close" title="Cerrar"></button>
+    </div>
+  </div>
+
+  <!-- Avisos de descarga -->
+  <div id="toasts"></div>
+
+  <!-- Panel overlay -->
+  <div id="panel" class="hidden">
+    <div id="panel-card">
+      <div id="panel-head">
+        <span id="panel-title"></span>
+        <button id="panel-close" class="icon-btn" data-icon="close" title="Cerrar"></button>
+      </div>
+      <div id="panel-body"></div>
+    </div>
+  </div>
+
+  <script src="icons.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
