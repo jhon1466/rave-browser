@@ -26,11 +26,5 @@ npm install
 npm start          # ejecutar en desarrollo
 npm run dist       # generar instalador (electron-builder)
 ```
-
-## Android
-
-Abre la carpeta `android/` en **Android Studio** y pulsa Run. Ver
-[android/README.md](android/README.md) para detalles.
-
 ## Licencia
 GPL-3.0
