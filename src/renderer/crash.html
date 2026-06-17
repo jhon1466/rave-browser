@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Página bloqueada — Rave</title>
+  <style>
+    :root { --bg:#fff; --ink:#1d1d1f; --soft:#6e6e73; --border:#d8d8dc; --surface:#f4f4f5; --accent:#1d1d1f; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0e0e10; --ink:#f5f5f7; --soft:#98989d; --border:#2e2e33; --surface:#18181c; --accent:#f5f5f7; }
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; font-family: -apple-system,'Segoe UI',Roboto,system-ui,sans-serif;
+      background: var(--bg); color: var(--ink); display: grid; place-items: center; }
+    .wrap { width: min(440px, 88vw); text-align: center; }
+    .ico { width: 60px; height: 60px; margin: 0 auto 22px; color: var(--soft); }
+    h1 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }
+    p { color: var(--soft); font-size: 14px; line-height: 1.5; margin-bottom: 22px; }
+    button { height: 42px; padding: 0 24px; font-size: 14px; font-weight: 500; cursor: pointer;
+      background: var(--accent); color: var(--bg); border: none; border-radius: 21px; transition: opacity 140ms; }
+    button:hover { opacity: 0.88; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    <h1>Vaya, esta página se ha bloqueado</h1>
+    <p>Algo hizo que la página dejara de responder. Puedes volver a cargarla.</p>
+    <button id="reload">Recargar página</button>
+  </div>
+  <script>
+    const url = new URLSearchParams(location.search).get('url') || '';
+    document.getElementById('reload').addEventListener('click', () => { if (url && url !== 'about:blank') location.href = url; });
+  </script>
+</body>
+</html>

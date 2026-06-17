@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Conexión no segura — Rave</title>
+  <style>
+    :root { --bg:#fff; --ink:#1d1d1f; --soft:#6e6e73; --border:#d8d8dc; --surface:#f4f4f5; --danger:#c0392b; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0e0e10; --ink:#f5f5f7; --soft:#98989d; --border:#2e2e33; --surface:#18181c; --danger:#ff5a3c; }
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; font-family: -apple-system,'Segoe UI',Roboto,system-ui,sans-serif;
+      background: var(--bg); color: var(--ink); display: grid; place-items: center; }
+    .wrap { width: min(480px, 88vw); text-align: center; }
+    .ico { width: 60px; height: 60px; margin: 0 auto 22px; color: var(--danger); }
+    h1 { font-size: 21px; font-weight: 600; margin-bottom: 10px; }
+    p { color: var(--soft); font-size: 14px; line-height: 1.55; margin-bottom: 8px; }
+    .host { font-weight: 600; color: var(--ink); }
+    .err { font-size: 12px; color: var(--soft); background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px; margin: 16px 0 24px; user-select: text; }
+    button { height: 42px; padding: 0 22px; font-size: 14px; font-weight: 500; cursor: pointer;
+      background: var(--ink); color: var(--bg); border: none; border-radius: 21px; transition: opacity 140ms; }
+    button:hover { opacity: 0.88; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    <h1>Tu conexión no es privada</h1>
+    <p>El certificado de seguridad de <span class="host" id="host"></span> no es válido. Alguien podría estar intentando interceptar tu información.</p>
+    <div class="err" id="err"></div>
+    <button id="back">Volver a un lugar seguro</button>
+  </div>
+  <script>
+    const p = new URLSearchParams(location.search);
+    let host = '';
+    try { host = new URL(p.get('url')).hostname; } catch {}
+    document.getElementById('host').textContent = host || 'este sitio';
+    document.getElementById('err').textContent = p.get('error') || '';
+    document.getElementById('back').addEventListener('click', () => history.length > 1 ? history.back() : (location.href = 'about:blank'));
+  </script>
+</body>
+</html>

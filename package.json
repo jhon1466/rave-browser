@@ -14,7 +14,8 @@
     "appId": "com.rave.browser",
     "productName": "Rave",
     "files": ["src/**/*", "node_modules/**/*", "package.json"],
-    "win": { "target": "nsis" },
+    "win": { "target": "nsis", "icon": "build/icon.png" },
+    "icon": "build/icon.png",
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
     "publish": [
       {

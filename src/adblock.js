@@ -88,14 +88,24 @@ async function setupAdblock(ses) {
 
   // Activa bloqueo de red + cosmetic filtering sobre esta sesión.
   blocker.enableBlockingInSession(ses);
+  ses.__raveBlockEnabled = true;
 
   console.log('[Rave] uBlock activado (listas completas uBO + EasyList, scriptlets YouTube).');
   return blocker;
 }
 
-// Activa el bloqueo en una sesión adicional (incógnito) si el motor ya cargó.
+// Activa el bloqueo en una sesión (idempotente: no duplica listeners).
 function enableBlockingOn(ses) {
-  if (global.__raveBlocker) global.__raveBlocker.enableBlockingInSession(ses);
+  if (!global.__raveBlocker || ses.__raveBlockEnabled) return;
+  global.__raveBlocker.enableBlockingInSession(ses);
+  ses.__raveBlockEnabled = true;
 }
 
-module.exports = { setupAdblock, enableBlockingOn };
+// Desactiva el bloqueo en una sesión (para el modo "sin protección").
+function disableBlockingOn(ses) {
+  if (!global.__raveBlocker || !ses.__raveBlockEnabled) return;
+  try { global.__raveBlocker.disableBlockingInSession(ses); } catch {}
+  ses.__raveBlockEnabled = false;
+}
+
+module.exports = { setupAdblock, enableBlockingOn, disableBlockingOn };

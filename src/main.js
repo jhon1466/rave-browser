@@ -1,7 +1,24 @@
-const { app, BaseWindow, WebContentsView, Menu, session, ipcMain, shell } = require('electron');
+const { app, BaseWindow, WebContentsView, Menu, session, ipcMain, shell, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { setupAdblock, enableBlockingOn } = require('./adblock');
+
+// ====== Estado de la ventana (tamaño/posición/maximizada) ======
+const WIN_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json');
+function loadWinState() {
+  try { return JSON.parse(fs.readFileSync(WIN_STATE_FILE(), 'utf8')); } catch { return null; }
+}
+let _winStateT = null;
+function saveWinState(win) {
+  clearTimeout(_winStateT);
+  _winStateT = setTimeout(() => {
+    try {
+      const maximized = win.isMaximized();
+      const b = maximized ? (win.__normalBounds || win.getBounds()) : win.getBounds();
+      fs.writeFileSync(WIN_STATE_FILE(), JSON.stringify({ ...b, maximized }));
+    } catch {}
+  }, 400);
+}
+const { setupAdblock, enableBlockingOn, disableBlockingOn } = require('./adblock');
 const { installChromeWebStore, uninstallExtension } = require('electron-chrome-web-store');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
 const { setupUpdater, checkNow, quitAndInstall } = require('./updater');
@@ -18,6 +35,44 @@ const focusedState = () => {
 };
 
 const EXT_DIR = () => path.join(app.getPath('userData'), 'Extensions');
+
+// ====== Privacidad ======
+// Estado actual de privacidad (lo fija la interfaz desde Ajustes).
+let privacy = { level: 'standard', dnt: false, httpsOnly: false, clearOnExit: false };
+const wantDNT = () => privacy.dnt || privacy.level === 'strict';
+const wantHTTPS = () => privacy.httpsOnly || privacy.level === 'strict';
+const isLocalUrl = (u) => /^https?:\/\/(localhost|127\.|\[::1\]|0\.0\.0\.0)/i.test(u);
+
+// Instala en una sesión los handlers de privacidad que NO chocan con el
+// adblocker (este usa onBeforeRequest/onHeadersReceived; nosotros solo
+// onBeforeSendHeaders para DNT/GPC). Se registra una sola vez y lee el
+// estado en vivo, así alternar no requiere re-registrar.
+function installPrivacy(ses) {
+  if (ses.__ravePrivacy) return;
+  ses.__ravePrivacy = true;
+  ses.webRequest.onBeforeSendHeaders((details, cb) => {
+    const h = details.requestHeaders;
+    if (wantDNT()) { h['DNT'] = '1'; h['Sec-GPC'] = '1'; }
+    else { delete h['DNT']; delete h['Sec-GPC']; }
+    cb({ requestHeaders: h });
+  });
+}
+
+// Recorre todas las sesiones de pestañas activas (normal + incógnitos).
+function forEachTabSession(cb) {
+  const seen = new Set();
+  const add = (s) => { if (s && !seen.has(s)) { seen.add(s); cb(s); } };
+  add(session.defaultSession);
+  for (const s of states.values()) add(s.tabSession);
+}
+
+// Aplica el nivel de protección (activa/desactiva el bloqueador por sesión).
+function applyTrackerLevel() {
+  forEachTabSession((ses) => {
+    if (privacy.level === 'off') disableBlockingOn(ses);
+    else enableBlockingOn(ses);
+  });
+}
 
 // ====== Estado por ventana ======
 // Cada ventana tiene: la vista de interfaz (chrome) + un mapa de pestañas
@@ -36,14 +91,22 @@ function createWindow(incognito = false) {
   if (incognito) {
     partition = 'incognito-' + Date.now();
     tabSession = session.fromPartition(partition);   // en memoria (sin persist:)
-    enableBlockingOn(tabSession);
+    if (privacy.level !== 'off') enableBlockingOn(tabSession);
     attachDownloads(tabSession);
+    installPrivacy(tabSession);
+    installPermissions(tabSession);
+    installCerts(tabSession);
   }
 
+  const ws = incognito ? null : loadWinState();
   const win = new BaseWindow({
-    width: 1280, height: 800, minWidth: 720, minHeight: 420,
-    frame: false, backgroundColor: incognito ? '#0d0d0f' : '#ffffff', title: 'Rave'
+    width: ws?.width || 1280, height: ws?.height || 800,
+    x: ws?.x, y: ws?.y,
+    minWidth: 720, minHeight: 420,
+    frame: false, backgroundColor: incognito ? '#0d0d0f' : '#ffffff', title: 'Rave',
+    icon: path.join(__dirname, '..', 'build', 'icon.png')
   });
+  if (ws?.maximized) win.maximize();
 
   // Vista de interfaz (chrome). Va arriba en el z-order.
   const ui = new WebContentsView({
@@ -60,9 +123,12 @@ function createWindow(incognito = false) {
   states.set(ui.webContents.id, state);
 
   const layout = () => relayout(state);
-  win.on('resize', layout);
-  win.on('maximize', () => { ui.webContents.send('rave:win-state', true); layout(); });
-  win.on('unmaximize', () => { ui.webContents.send('rave:win-state', false); layout(); });
+  const persist = () => { if (!incognito) { if (!win.isMaximized()) win.__normalBounds = win.getBounds(); saveWinState(win); } };
+  win.on('resize', () => { layout(); persist(); });
+  win.on('move', persist);
+  win.on('maximize', () => { ui.webContents.send('rave:win-state', true); layout(); persist(); });
+  win.on('unmaximize', () => { ui.webContents.send('rave:win-state', false); layout(); persist(); });
+  win.on('close', persist);
   win.on('closed', () => states.delete(ui.webContents.id));
 
   layout();
@@ -102,16 +168,24 @@ function relayout(state) {
 function openTab(state, url) {
   const id = tabSeq++;
   const view = new WebContentsView({
-    webPreferences: state.incognito ? { partition: state.partition } : {}
+    webPreferences: state.incognito
+      ? { partition: state.partition, spellcheck: true }
+      : { spellcheck: true }
   });
   view.setBackgroundColor(state.incognito ? '#0d0d0f' : '#ffffff');
   state.win.contentView.addChildView(view, 0);          // por debajo de la interfaz
   view.setVisible(false);
-  state.tabs.set(id, { id, view, splitView: null, splitUrl: null, activeFocus: 'primary' });
+  state.tabs.set(id, { id, view, splitView: null, splitUrl: null, activeFocus: 'primary', lastActiveAt: Date.now(), suspended: false, suspendedUrl: null });
 
   const wc = view.webContents;
   wc.setMaxListeners(30); // Prevenir MaxListenersExceededWarning al usar pantalla dividida
-  const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id, ...fields });
+  // No propaga eventos a la interfaz mientras la pestaña está suspendida
+  // (la carga de about:blank no debe borrar el título/URL mostrados).
+  const send = (fields) => {
+    const t = state.tabs.get(id);
+    if (t && t.suspended) return;
+    state.ui.webContents.send('rave:tab-updated', { id, ...fields });
+  };
   const navState = () => ({
     canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
     canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
@@ -135,6 +209,7 @@ function openTab(state, url) {
   });
   const onNav = () => {
     const t = state.tabs.get(id);
+    if (t && t.suspended) return;            // ignora la navegación a about:blank
     if (t) t.url = wc.getURL();
     if (!t || t.activeFocus === 'primary') {
       send({ url: wc.getURL(), ...navState() });
@@ -144,6 +219,26 @@ function openTab(state, url) {
   wc.on('did-navigate', onNav);
   wc.on('did-navigate-in-page', onNav);
   wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); });
+  // Indicador de audio de la pestaña.
+  wc.on('audio-state-changed', (ev) => {
+    const t = state.tabs.get(id);
+    if (!t || t.activeFocus === 'primary') send({ audible: ev.audible });
+  });
+  // Página de error cuando falla la carga principal (sin conexión, DNS, etc.).
+  wc.on('did-fail-load', (_e, code, desc, failUrl, isMainFrame) => {
+    if (!isMainFrame || code === -3) return;          // -3 = navegación abortada
+    if (!/^https?:/i.test(failUrl)) return;
+    wc.loadFile(path.join(__dirname, 'renderer', 'error.html'), {
+      search: `url=${encodeURIComponent(failUrl)}&code=${code}&desc=${encodeURIComponent(desc || '')}`
+    });
+  });
+  // Página de "pestaña bloqueada" si el proceso de render se cae.
+  wc.on('render-process-gone', (_e, details) => {
+    const u = wc.getURL();
+    wc.loadFile(path.join(__dirname, 'renderer', 'crash.html'), {
+      search: `url=${encodeURIComponent(u)}&reason=${encodeURIComponent(details?.reason || 'crashed')}`
+    });
+  });
   wc.on('found-in-page', (_e, r) => {
     const t = state.tabs.get(id);
     if (!t || t.activeFocus === 'primary') state.ui.webContents.send('rave:tab-found', { id, ...r });
@@ -154,6 +249,14 @@ function openTab(state, url) {
   });
   wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
 
+  // Modo solo HTTPS: actualiza la navegación principal de http:// a https://.
+  wc.on('will-navigate', (e, navUrl) => {
+    if (wantHTTPS() && navUrl.startsWith('http://') && !isLocalUrl(navUrl)) {
+      e.preventDefault();
+      wc.loadURL(navUrl.replace(/^http:\/\//i, 'https://'));
+    }
+  });
+
   // Da de alta la pestaña en el sistema de extensiones (chrome.tabs + acciones).
   if (extensions && !state.incognito) extensions.addTab(wc, state.win);
 
@@ -163,8 +266,61 @@ function openTab(state, url) {
   return state.tabs.get(id);
 }
 
+// Suspende (pone en reposo) una pestaña: libera la memoria del sitio cargando
+// about:blank, guardando la URL. No destruye la vista (seguro con split-view).
+function suspendTab(state, id, force = false) {
+  const t = state.tabs.get(id);
+  if (!t || t.suspended || t.splitView) return;
+  // La pestaña activa no se auto-suspende; en modo manual (force) cambiamos
+  // primero a otra pestaña para no dejar la vista en blanco.
+  if (state.activeId === id) {
+    if (!force) return;
+    const others = [...state.tabs.keys()].filter((x) => x !== id);
+    if (!others.length) return;        // única pestaña: no suspender
+    selectTab(state, others[0]);
+  }
+  try {
+    if (!force && t.view.webContents.isCurrentlyAudible()) return;  // no suspender si suena (auto)
+    t.suspendedUrl = t.view.webContents.getURL();
+    if (!t.suspendedUrl || t.suspendedUrl === 'about:blank' || t.suspendedUrl.includes('newtab.html')) return;
+    t.suspended = true;
+    t.view.webContents.loadURL('about:blank');
+    state.ui.webContents.send('rave:tab-updated', { id, suspended: true });
+  } catch { t.suspended = false; }
+}
+
+// Reactiva una pestaña suspendida recargando su URL original.
+function wakeTab(state, id) {
+  const t = state.tabs.get(id);
+  if (!t || !t.suspended) return;
+  t.suspended = false;
+  const url = t.suspendedUrl;
+  t.suspendedUrl = null;
+  state.ui.webContents.send('rave:tab-updated', { id, suspended: false });
+  if (url) t.view.webContents.loadURL(url);
+}
+
+// Auto-reposo: suspende pestañas inactivas más de sleepMs (0 = nunca).
+let sleepMs = 10 * 60 * 1000;             // 10 min por defecto (configurable en Ajustes)
+setInterval(() => {
+  if (sleepMs <= 0) return;
+  const now = Date.now();
+  for (const state of states.values()) {
+    if (state.incognito) continue;        // incógnito no se suspende
+    for (const [id, t] of state.tabs) {
+      if (id === state.activeId || t.suspended || t.splitView) continue;
+      if (now - (t.lastActiveAt || now) > sleepMs) suspendTab(state, id);
+    }
+  }
+}, 15 * 1000);
+
 function selectTab(state, id) {
   if (!state.tabs.has(id)) return;
+  // La pestaña que dejamos: arranca su contador de inactividad ahora.
+  const prev = state.tabs.get(state.activeId);
+  if (prev && state.activeId !== id) prev.lastActiveAt = Date.now();
+  const selT = state.tabs.get(id);
+  if (selT) { selT.lastActiveAt = Date.now(); if (selT.suspended) wakeTab(state, id); }
   state.activeId = id;
   for (const [tid, t] of state.tabs) {
     const isAct = (tid === id);
@@ -532,9 +688,70 @@ process.on('unhandledRejection', (err) => {
   console.error('[Rave] unhandledRejection:', m);
 });
 
+// ====== Permisos por sitio ======
+const permDecisions = new Map();   // `${origin}|${permission}` -> bool
+const pendingPerms = new Map();    // id -> { callback, key }
+let permSeq = 1;
+function findStateByWC(wc) {
+  for (const s of states.values())
+    for (const t of s.tabs.values())
+      if (t.view?.webContents === wc || t.splitView?.webContents === wc) return s;
+  return null;
+}
+function installPermissions(ses) {
+  if (ses.__ravePerms) return; ses.__ravePerms = true;
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    if (permission === 'fullscreen' || permission === 'pointerLock') return callback(true);
+    let origin = '';
+    try { origin = new URL(details?.requestingUrl || wc.getURL()).origin; } catch {}
+    const key = origin + '|' + permission;
+    if (permDecisions.has(key)) return callback(permDecisions.get(key));
+    const state = findStateByWC(wc);
+    if (!state) return callback(false);
+    const id = permSeq++;
+    pendingPerms.set(id, { callback, key });
+    state.ui.webContents.send('rave:permission-request', { id, permission, origin });
+  });
+}
+
+// ====== Certificados ======
+const allowedCertHosts = new Set();
+function installCerts(ses) { ses.setCertificateVerifyProc((req, cb) => cb(allowedCertHosts.has(req.hostname) ? 0 : -3)); }
+
+app.on('certificate-error', (event, wc, url, error, _cert, callback) => {
+  let host = '';
+  try { host = new URL(url).hostname; } catch {}
+  if (allowedCertHosts.has(host)) { event.preventDefault(); callback(true); return; }
+  event.preventDefault(); callback(false);
+  try {
+    if (new URL(url).origin === new URL(wc.getURL() || url).origin || wc.getURL() === 'about:blank') {
+      wc.loadFile(path.join(__dirname, 'renderer', 'cert-warning.html'),
+        { search: `url=${encodeURIComponent(url)}&error=${encodeURIComponent(error)}` });
+    }
+  } catch {}
+});
+
+// Instancia única: si Rave ya está abierto, los enlaces del SO van a esa ventana.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => {
+    const url = argv.find((a) => /^https?:\/\//i.test(a));
+    const s = focusedState() || [...states.values()][0];
+    if (s) { s.win.focus(); if (url) openTab(s, url); }
+  });
+}
+// URL recibida al arrancar (cuando Rave es el navegador predeterminado).
+const initialUrl = () => process.argv.find((a) => /^https?:\/\//i.test(a));
+
 app.whenReady().then(async () => {
   await setupAdblock(session.defaultSession);
   attachDownloads(session.defaultSession);
+  installPrivacy(session.defaultSession);
+  installPermissions(session.defaultSession);
+  installCerts(session.defaultSession);
+  try { session.defaultSession.setSpellCheckerLanguages(['es', 'en-US']); } catch {}
 
   // Sistema de extensiones: APIs chrome.*, acciones de barra y popups.
   ElectronChromeExtensions.handleCRXProtocol(session.defaultSession);   // iconos crx://
@@ -566,6 +783,18 @@ app.whenReady().then(async () => {
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
+// Borrar datos de navegación al salir (si está activado en privacidad).
+app.on('before-quit', async (e) => {
+  if (!privacy.clearOnExit || global.__raveClearing) return;
+  e.preventDefault();
+  global.__raveClearing = true;
+  try {
+    await session.defaultSession.clearStorageData();
+    await session.defaultSession.clearCache();
+  } catch {}
+  app.quit();
+});
+
 // ====== IPC ======
 const st = (e) => {
   const senderId = e.sender.id;
@@ -595,6 +824,71 @@ ipcMain.handle('rave:uninstall-extension', async (e, id) => {
   }
 });
 ipcMain.on('rave:open-extensions-folder', () => shell.openPath(EXT_DIR()));
+ipcMain.on('rave:set-privacy', (_e, p) => { privacy = { ...privacy, ...p }; applyTrackerLevel(); });
+ipcMain.on('rave:set-sleep', (_e, minutes) => { sleepMs = minutes > 0 ? minutes * 60000 : 0; });
+
+// Respuesta del usuario al diálogo de permiso
+ipcMain.on('rave:permission-response', (_e, { id, allow, remember }) => {
+  const p = pendingPerms.get(id); if (!p) return;
+  pendingPerms.delete(id);
+  if (remember) permDecisions.set(p.key, allow);
+  try { p.callback(allow); } catch {}
+});
+
+// Imprimir / Guardar como PDF
+const activeWc = (e) => { const s = st(e); const t = s && s.tabs.get(s.activeId); return t ? (t.activeFocus === 'secondary' && t.splitView ? t.splitView : t.view).webContents : null; };
+ipcMain.on('rave:print', (e) => { try { activeWc(e)?.print(); } catch {} });
+ipcMain.handle('rave:print-pdf', async (e) => {
+  const wc = activeWc(e); if (!wc) return null;
+  try {
+    const data = await wc.printToPDF({ printBackground: true });
+    const file = path.join(app.getPath('downloads'), `rave-${Date.now()}.pdf`);
+    fs.writeFileSync(file, data);
+    shell.openPath(file);
+    return file;
+  } catch { return null; }
+});
+
+// Cifrado de contraseñas con safeStorage (cifra con la cuenta del SO)
+ipcMain.handle('rave:encrypt', (_e, text) => {
+  try {
+    if (safeStorage.isEncryptionAvailable()) return 'enc:' + safeStorage.encryptString(String(text)).toString('base64');
+  } catch {}
+  return 'b64:' + Buffer.from(String(text)).toString('base64');   // respaldo
+});
+ipcMain.handle('rave:decrypt', (_e, data) => {
+  try {
+    if (typeof data !== 'string') return '';
+    if (data.startsWith('enc:')) return safeStorage.decryptString(Buffer.from(data.slice(4), 'base64'));
+    if (data.startsWith('b64:')) return Buffer.from(data.slice(4), 'base64').toString();
+    return Buffer.from(data, 'base64').toString();   // formato antiguo (btoa)
+  } catch { return ''; }
+});
+
+// Importar marcadores de Chrome / Edge / Brave
+ipcMain.handle('rave:import-bookmarks', () => {
+  const local = process.env.LOCALAPPDATA || path.join(app.getPath('appData'), '..', 'Local');
+  const sources = [
+    ['Chrome', path.join(local, 'Google', 'Chrome', 'User Data', 'Default', 'Bookmarks')],
+    ['Edge', path.join(local, 'Microsoft', 'Edge', 'User Data', 'Default', 'Bookmarks')],
+    ['Brave', path.join(local, 'BraveSoftware', 'Brave-Browser', 'User Data', 'Default', 'Bookmarks')]
+  ];
+  const out = [];
+  const walk = (node) => {
+    if (!node) return;
+    if (node.type === 'url' && node.url) out.push({ title: node.name || node.url, url: node.url });
+    if (Array.isArray(node.children)) node.children.forEach(walk);
+  };
+  for (const [name, file] of sources) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      Object.values(data.roots || {}).forEach(walk);
+      if (out.length) return { source: name, bookmarks: out };
+    } catch {}
+  }
+  return { source: null, bookmarks: [] };
+});
 ipcMain.on('rave:update-check', () => checkNow());
 ipcMain.on('rave:update-install', () => quitAndInstall());
 
@@ -715,6 +1009,14 @@ ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
     case 'copy': wc.copy(); break;
     case 'cut': wc.cut(); break;
     case 'paste': wc.paste(); break;
+    case 'mute': {
+      const muted = !!arg;
+      t.view.webContents.setAudioMuted(muted);
+      if (t.splitView) t.splitView.webContents.setAudioMuted(muted);
+      state.ui.webContents.send('rave:tab-updated', { id, muted });
+      break;
+    }
+    case 'suspend': suspendTab(s, id, true); break;
   }
 });
 

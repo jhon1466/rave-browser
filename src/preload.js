@@ -49,6 +49,25 @@ contextBridge.exposeInMainWorld('rave', {
   onDownloadStarted: (cb) => on('rave:download-started', cb),
   onDownloadDone: (cb) => on('rave:download-done', cb),
 
+  // Privacidad
+  setPrivacy: (p) => ipcRenderer.send('rave:set-privacy', p),
+  setSleep: (minutes) => ipcRenderer.send('rave:set-sleep', minutes),
+
+  // Permisos por sitio
+  onPermissionRequest: (cb) => on('rave:permission-request', cb),
+  permissionResponse: (r) => ipcRenderer.send('rave:permission-response', r),
+
+  // Imprimir / PDF
+  print: () => ipcRenderer.send('rave:print'),
+  printPDF: () => ipcRenderer.invoke('rave:print-pdf'),
+
+  // Cifrado de contraseñas
+  encrypt: (text) => ipcRenderer.invoke('rave:encrypt', text),
+  decrypt: (data) => ipcRenderer.invoke('rave:decrypt', data),
+
+  // Importar marcadores de otros navegadores
+  importBookmarks: () => ipcRenderer.invoke('rave:import-bookmarks'),
+
   // Actualizaciones OTA
   onUpdate: (cb) => on('rave:update', cb),
   updateCheck: () => ipcRenderer.send('rave:update-check'),

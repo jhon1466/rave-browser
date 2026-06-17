@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>No se pudo cargar la página — Rave</title>
+  <style>
+    :root { --bg:#fff; --ink:#1d1d1f; --soft:#6e6e73; --border:#d8d8dc; --surface:#f4f4f5; --accent:#1d1d1f; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#0e0e10; --ink:#f5f5f7; --soft:#98989d; --border:#2e2e33; --surface:#18181c; --accent:#f5f5f7; }
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { height: 100%; font-family: -apple-system,'Segoe UI',Roboto,system-ui,sans-serif;
+      background: var(--bg); color: var(--ink); display: grid; place-items: center; }
+    .wrap { width: min(460px, 88vw); text-align: center; }
+    .ico { width: 64px; height: 64px; margin: 0 auto 22px; color: var(--soft); }
+    h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 10px; }
+    p { color: var(--soft); font-size: 14px; line-height: 1.5; margin-bottom: 6px; }
+    .url { font-size: 12.5px; color: var(--soft); word-break: break-all;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; margin: 18px 0 24px; user-select: text; }
+    .code { font-size: 12px; color: var(--soft); margin-top: 16px; opacity: 0.8; }
+    button { height: 42px; padding: 0 24px; font-size: 14px; font-weight: 500; cursor: pointer;
+      background: var(--accent); color: var(--bg); border: none; border-radius: 21px;
+      transition: opacity 140ms; }
+    button:hover { opacity: 0.88; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10.94 6.08A6.93 6.93 0 0 1 12 6c3.18 0 6.17 2.29 7.91 6a15.23 15.23 0 0 1-.9 1.64"/>
+      <path d="M6.61 6.61A13.5 13.5 0 0 0 2 12c1.74 3.71 4.73 6 8 6a9.74 9.74 0 0 0 5.39-1.61"/>
+      <line x1="2" y1="2" x2="22" y2="22"/>
+    </svg>
+    <h1>No se pudo cargar la página</h1>
+    <p id="msg">Comprueba tu conexión a internet e inténtalo de nuevo.</p>
+    <div class="url" id="url"></div>
+    <button id="retry">Reintentar</button>
+    <div class="code" id="code"></div>
+  </div>
+  <script>
+    const p = new URLSearchParams(location.search);
+    const url = p.get('url') || '';
+    document.getElementById('url').textContent = url;
+    const desc = p.get('desc'), code = p.get('code');
+    if (desc) document.getElementById('code').textContent = `${desc}${code ? ' · ' + code : ''}`;
+    document.getElementById('retry').addEventListener('click', () => { if (url) location.href = url; });
+  </script>
+</body>
+</html>

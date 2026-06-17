@@ -87,6 +87,45 @@ html[data-theme="dark"] {
   --sh:0 4px 20px rgba(0,0,0,0.5); --sh-lg:0 12px 40px rgba(0,0,0,0.6);
   --sh-xl:0 24px 64px rgba(0,0,0,0.7);
 }
+/* Tema "Orange Eclipse" — negro táctico + ámbar, con superficies de cristal. */
+html[data-theme="eclipse"] {
+  --bg:#0a0d10; --bg-glass:rgba(11,15,19,0.62);
+  --surface:#11161b; --surface-2:#171d24; --surface-3:#222a32;
+  --border:rgba(255,122,26,0.22); --border-soft:rgba(255,122,26,0.10);
+  --ink:#e8eaed; --ink-soft:#8b9298; --ink-xsoft:#5c636a;
+  --accent:#ff7a1a; --accent-pale:#1a1205;
+  --danger:#ff5a3c;
+  --sh-xs:0 1px 2px rgba(0,0,0,0.5); --sh-sm:0 2px 10px rgba(0,0,0,0.55);
+  --sh:0 6px 24px rgba(0,0,0,0.6); --sh-lg:0 14px 44px rgba(0,0,0,0.7);
+  --sh-xl:0 26px 66px rgba(0,0,0,0.8);
+  font-family: 'Bahnschrift', 'Oxanium', var(--font);
+}
+/* Rejilla táctica sutil en el chrome */
+html[data-theme="eclipse"] #chrome {
+  background:
+    linear-gradient(rgba(255,122,26,0.035) 1px, transparent 1px) 0 0 / 26px 26px,
+    linear-gradient(90deg, rgba(255,122,26,0.035) 1px, transparent 1px) 0 0 / 26px 26px,
+    var(--surface);
+}
+/* Pestaña activa con borde superior ámbar y brillo */
+html[data-theme="eclipse"] .tab.active { box-shadow: inset 0 2px 0 var(--accent); }
+html[data-theme="eclipse"] .tab.active::after { box-shadow: 0 0 10px var(--accent); }
+/* Barra de direcciones angular con foco ámbar */
+html[data-theme="eclipse"] #address {
+  border-radius: 0;
+  clip-path: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+}
+html[data-theme="eclipse"] #address:focus { box-shadow: 0 0 0 1px var(--accent), 0 0 14px rgba(255,122,26,0.25); }
+html[data-theme="eclipse"] #shield-count { color: var(--accent); }
+/* Menús desplegables angulares */
+html[data-theme="eclipse"] #menu,
+html[data-theme="eclipse"] #ext-menu {
+  border-radius: 0; border: 1px solid rgba(255,122,26,0.3);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%);
+}
+/* Barras de desplazamiento ámbar */
+html[data-theme="eclipse"] ::-webkit-scrollbar-thumb { background: rgba(255,122,26,0.38); }
+html[data-theme="eclipse"] ::-webkit-scrollbar-thumb:hover { background: rgba(255,122,26,0.6); }
 
 /* ======================================================
    Reset
@@ -644,7 +683,78 @@ html.no-anim *, html.no-anim *::before, html.no-anim *::after {
   flex-wrap: wrap; align-items: center; justify-content: flex-end;
 }
 
-/* Settings rows */
+/* ======================================================
+   Settings — diseño en tarjetas
+   ====================================================== */
+.settings-wrap { padding: 6px 14px 4px; display: flex; flex-direction: column; gap: 20px; }
+.settings-wrap .settings-section {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-soft);
+  padding: 0 4px 9px;
+}
+.settings-wrap .settings-section svg { width: 14px; height: 14px; }
+.settings-card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg, 14px);
+  overflow: hidden;
+}
+.set-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.settings-card .set-item:last-child { border-bottom: none; }
+.set-item.stacked { flex-direction: column; align-items: stretch; gap: 11px; }
+.set-item-text { min-width: 0; }
+.set-item-title { font-size: 13.5px; font-weight: 550; letter-spacing: -0.01em; }
+.set-item-desc { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.35; }
+.set-item select,
+.set-item input:not([type=checkbox]) {
+  height: 36px; padding: 0 12px;
+  background: var(--bg); color: var(--ink);
+  border: 1px solid var(--border); border-radius: var(--r);
+  font-size: 13px; font-family: var(--font);
+  outline: none; min-width: 150px; max-width: 58%;
+  transition: border-color 140ms; user-select: text;
+}
+.set-item.stacked select,
+.set-item.stacked input:not([type=checkbox]) { max-width: none; width: 100%; }
+.set-item select:focus, .set-item input:focus { border-color: var(--accent); }
+.set-btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Interruptor (toggle) */
+.switch { position: relative; display: inline-block; width: 42px; height: 24px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+.switch .track {
+  position: absolute; inset: 0; cursor: pointer;
+  background: var(--surface-3); border-radius: 99px;
+  transition: background 180ms ease;
+}
+.switch .track::before {
+  content: ''; position: absolute;
+  width: 18px; height: 18px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+  transition: transform 200ms var(--spring);
+}
+.switch input:checked + .track { background: var(--ink); }
+.switch input:checked + .track::before { transform: translateX(18px); }
+
+/* Botón peligroso + pie de ajustes */
+.btn.danger { background: var(--danger); color: #fff; }
+.btn.danger:hover { opacity: 0.88; }
+.settings-footer {
+  position: sticky; bottom: 0;
+  display: flex; justify-content: flex-end;
+  padding: 12px 15px;
+  background: linear-gradient(0deg, var(--bg) 60%, transparent);
+  border-top: 1px solid var(--border-soft);
+}
+.settings-footer .btn { min-width: 140px; justify-content: center; }
+
+/* Settings rows (compat con paneles antiguos) */
 .set-row { padding: 8px 14px; display: flex; flex-direction: column; gap: 6px; }
 .set-row label { font-size: 13px; font-weight: 500; }
 .set-row-check { flex-direction: row; align-items: center; justify-content: space-between; }
@@ -682,6 +792,177 @@ html.no-anim *, html.no-anim *::before, html.no-anim *::after {
 }
 .btn.ghost:hover { background: var(--surface-2); }
 .btn.ghost:active { transform: scale(0.95); }
+
+/* ======================================================
+   Tema "Division 2 / SHD" — SOLO panel de Ajustes (prueba)
+   ====================================================== */
+html[data-theme="eclipse"] #panel-card {
+  background: rgba(10,13,16,0.66);
+  backdrop-filter: blur(26px) saturate(1.5);
+  -webkit-backdrop-filter: blur(26px) saturate(1.5);
+  border: 1px solid rgba(255,122,26,0.32);
+  border-radius: 0;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%);
+  font-family: 'Bahnschrift', 'Oxanium', var(--font);
+  color: #e3e6e9;
+  box-shadow: 0 0 0 1px rgba(255,122,26,0.06), 0 24px 60px rgba(0,0,0,0.6);
+}
+html[data-theme="eclipse"] #panel-card #panel-head {
+  background: #11161b;
+  border-bottom: 1px solid rgba(255,122,26,0.22);
+  color: #f0f2f4;
+  letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600;
+}
+html[data-theme="eclipse"] #panel-card #panel-title { display: flex; align-items: center; gap: 10px; }
+html[data-theme="eclipse"] #panel-card #panel-title::before {
+  content: ''; width: 9px; height: 9px;
+  background: #ff7a1a; transform: rotate(45deg);
+  box-shadow: 0 0 10px #ff7a1a;
+}
+html[data-theme="eclipse"] #panel-card #panel-close { color: #7d858c; }
+html[data-theme="eclipse"] #panel-card #panel-close:hover { color: #ff8a2c; background: transparent; }
+
+html[data-theme="eclipse"] #panel-card #panel-head {
+  background: rgba(17,22,27,0.55);
+}
+html[data-theme="eclipse"] #panel-card #panel-body {
+  background:
+    linear-gradient(rgba(255,122,26,0.045) 1px, transparent 1px) 0 0 / 26px 26px,
+    linear-gradient(90deg, rgba(255,122,26,0.045) 1px, transparent 1px) 0 0 / 26px 26px,
+    transparent;
+}
+html[data-theme="eclipse"] #panel-card .settings-card {
+  background: rgba(10,14,18,0.5);
+}
+html[data-theme="eclipse"] #panel-card .settings-section { color: #ff8a2c; }
+
+html[data-theme="eclipse"] #panel-card .settings-card {
+  background: #0a0e12;
+  border: 1px solid rgba(255,122,26,0.16);
+  border-radius: 0;
+}
+html[data-theme="eclipse"] #panel-card .set-item { border-bottom: 1px solid rgba(255,122,26,0.10); }
+html[data-theme="eclipse"] #panel-card .set-item-title { color: #e3e6e9; }
+html[data-theme="eclipse"] #panel-card .set-item-desc { color: #737a80; }
+html[data-theme="eclipse"] #panel-card .set-item select,
+html[data-theme="eclipse"] #panel-card .set-item input:not([type=checkbox]) {
+  background: #10151a; color: #d7dbdf;
+  border: 1px solid rgba(255,122,26,0.30); border-radius: 0;
+}
+html[data-theme="eclipse"] #panel-card .set-item select:focus,
+html[data-theme="eclipse"] #panel-card .set-item input:focus {
+  border-color: #ff7a1a; box-shadow: 0 0 0 1px #ff7a1a;
+}
+
+html[data-theme="eclipse"] #panel-card .switch .track {
+  background: #0f1318; border: 1px solid #2f363d; border-radius: 0;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+}
+html[data-theme="eclipse"] #panel-card .switch .track::before {
+  width: 16px; height: 16px; top: 3px; left: 3px;
+  background: #454b52; border-radius: 0; box-shadow: none;
+}
+html[data-theme="eclipse"] #panel-card .switch input:checked + .track { background: #1a1205; border-color: #ff7a1a; }
+html[data-theme="eclipse"] #panel-card .switch input:checked + .track::before {
+  background: #ff7a1a; box-shadow: 0 0 8px #ff7a1a; transform: translateX(20px);
+}
+
+html[data-theme="eclipse"] #panel-card .settings-footer {
+  background: #0c1014; border-top: 1px solid rgba(255,122,26,0.22);
+}
+html[data-theme="eclipse"] #panel-card .btn { border-radius: 0; }
+html[data-theme="eclipse"] #panel-card .settings-footer .btn {
+  background: #ff7a1a; color: #0a0c0f; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  box-shadow: 0 0 16px rgba(255,122,26,0.35);
+}
+html[data-theme="eclipse"] #panel-card .settings-footer .btn:hover { opacity: 0.92; }
+html[data-theme="eclipse"] #panel-card .btn.ghost {
+  background: transparent; border: 1px solid rgba(255,122,26,0.32); color: #ff8a2c;
+}
+html[data-theme="eclipse"] #panel-card .btn.ghost:hover { background: rgba(255,122,26,0.08); }
+html[data-theme="eclipse"] #panel-card .btn.danger {
+  background: #2a120c; border: 1px solid #ff5a3c; color: #ff7a5c;
+}
+
+/* ======================================================
+   Animaciones y micro-interacciones
+   ====================================================== */
+/* Entrada de pestañas */
+@keyframes tab-in { from { opacity: 0; transform: translateY(-6px); } }
+.tab { animation: tab-in 200ms var(--ease); }
+.tab {
+  transition: background 140ms var(--ease), color 140ms var(--ease),
+              max-width 220ms var(--ease), opacity 200ms var(--ease),
+              padding 200ms var(--ease);
+}
+/* Salida (colapso) de pestañas */
+.tab.closing { min-width: 0; padding-left: 0; padding-right: 0; overflow: hidden; pointer-events: none; }
+
+/* Botón de audio/silencio en la pestaña */
+.tab-audio {
+  width: 16px; height: 16px; flex: none;
+  border: none; background: transparent; color: var(--ink-soft);
+  display: grid; place-items: center; cursor: pointer;
+  border-radius: 4px; padding: 0;
+  transition: background 100ms, color 100ms;
+}
+.tab-audio svg { width: 13px; height: 13px; }
+.tab-audio:hover { background: var(--surface-3); color: var(--ink); }
+.tab-audio.hidden { display: none; }
+
+/* Pestaña fijada: compacta, solo favicon */
+.tab.pinned { min-width: 0; max-width: 46px; padding: 0 12px; justify-content: center; }
+.tab.pinned .title, .tab.pinned .close { display: none; }
+.tab.pinned::after { left: 8px; right: 8px; }
+
+/* Pestaña en reposo (suspendida): atenuada */
+.tab.suspended .favicon, .tab.suspended .title { opacity: 0.5; }
+.tab.suspended .title { font-style: italic; }
+
+/* Aparición de menús desplegables */
+#menu, #ext-menu { animation: menu-pop 160ms var(--spring); transform-origin: top right; }
+@keyframes menu-pop { from { opacity: 0; transform: translateY(-6px) scale(0.97); } }
+
+/* Sugerencias de la barra de direcciones */
+#suggest { animation: sg-in 140ms var(--ease); }
+@keyframes sg-in { from { opacity: 0; transform: translateY(-4px); } }
+
+/* Pulsación de botones de icono */
+.icon-btn { transition: background 120ms var(--ease), color 120ms var(--ease), transform 90ms var(--spring); }
+.icon-btn:active { transform: scale(0.9); }
+
+/* Suavizado del cambio de favicon y del escudo */
+.tab .favicon { transition: opacity 160ms var(--ease); }
+#shield-count { transition: color 200ms var(--ease); }
+
+/* ===== Diálogo de permisos por sitio ===== */
+.perm-dialog {
+  position: fixed; inset: 0; z-index: 400;
+  display: grid; place-items: start center; padding-top: 70px;
+  background: rgba(0,0,0,0.3);
+  animation: sg-in 140ms var(--ease);
+}
+.perm-card {
+  width: min(380px, 92vw);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-xl);
+  padding: 20px;
+  text-align: center;
+}
+.perm-card .perm-icon { color: var(--accent); display: grid; place-items: center; margin-bottom: 10px; }
+.perm-card .perm-icon svg { width: 26px; height: 26px; }
+.perm-title { font-size: 14px; font-weight: 500; line-height: 1.4; margin-bottom: 14px; }
+.perm-remember {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  font-size: 12px; color: var(--ink-soft); margin-bottom: 16px; cursor: pointer;
+}
+.perm-remember input { width: 15px; height: 15px; accent-color: var(--ink); }
+.perm-actions { display: flex; gap: 10px; justify-content: center; }
+.perm-actions .btn { min-width: 110px; justify-content: center; }
 
 /* ======================================================
    Misc

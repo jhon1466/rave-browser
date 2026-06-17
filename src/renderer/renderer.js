@@ -23,6 +23,10 @@ function xorDecrypt(encoded) {
     return Array.from(raw).map((c, i) => String.fromCharCode(c.charCodeAt(0) ^ xorKey.charCodeAt(i % xorKey.length))).join('');
   } catch { return ''; }
 }
+// Cifrado seguro con safeStorage (cuenta del SO). Compatibilidad con lo antiguo.
+const secEnc = (text) => window.rave.encrypt(text);
+const secDec = (value) => (typeof value === 'string' && (value.startsWith('enc:') || value.startsWith('b64:')))
+  ? window.rave.decrypt(value) : Promise.resolve(xorDecrypt(value));
 
 const ENGINES = {
   ddg:    { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },
@@ -33,8 +37,15 @@ const ENGINES = {
 };
 let settings = store.get('settings', {
   engine: 'ddg', homepage: '', theme: 'system',
-  savePasswords: true, showBookmarksBar: true, animations: true, readerFont: 'serif'
+  savePasswords: true, showBookmarksBar: true, animations: true, readerFont: 'serif',
+  // Privacidad
+  trackingLevel: 'standard', dnt: false, httpsOnly: false, clearOnExit: false,
+  // Rendimiento — minutos de inactividad para poner pestañas en reposo (0 = nunca)
+  sleepTimeout: 10
 });
+// Compatibilidad con ajustes guardados antes de existir privacidad.
+if (settings.trackingLevel === undefined) settings.trackingLevel = 'standard';
+if (settings.sleepTimeout === undefined) settings.sleepTimeout = 10;
 let bookmarks = store.get('bookmarks', []);
 let history = INCOGNITO ? [] : store.get('history', []);
 let downloads = INCOGNITO ? [] : store.get('downloads', []);
@@ -72,6 +83,7 @@ function topSites() {
   return ranked;
 }
 const newTabURL = () => NEWTAB_BASE + '?engine=' + encodeURIComponent(enginePrefix()) +
+  '&theme=' + encodeURIComponent(settings.theme || 'system') +
   '&sites=' + encodeURIComponent(JSON.stringify(INCOGNITO ? [] : topSites()));
 const homeURL = () => (settings.homepage?.trim() ? settings.homepage.trim() : newTabURL());
 const isInternal = (url) => !url || url.startsWith(NEWTAB_BASE);
@@ -109,10 +121,14 @@ window.rave.onTabOpened(({ id, url }) => {
   el.draggable = true;
   el.dataset.id = id;
   el.innerHTML = `<img class="favicon hidden" /><div class="spinner hidden"></div>` +
-    `<span class="title">Nueva pestaña</span><span class="close" title="Cerrar">${ICONS.close}</span>`;
+    `<span class="title">Nueva pestaña</span>` +
+    `<button class="tab-audio hidden" title="Silenciar">${ICONS.volume}</button>` +
+    `<span class="close" title="Cerrar">${ICONS.close}</span>`;
   $tabs.appendChild(el);
-  el.addEventListener('click', (e) => { if (!e.target.closest('.close')) window.rave.tabSelect(id); });
+  el.addEventListener('click', (e) => { if (!e.target.closest('.close') && !e.target.closest('.tab-audio')) window.rave.tabSelect(id); });
   el.querySelector('.close').addEventListener('click', (e) => { e.stopPropagation(); window.rave.tabClose(id); });
+  el.querySelector('.tab-audio').addEventListener('click', (e) => { e.stopPropagation(); toggleMute(id); });
+  el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); showTabMenu(id, e.clientX, e.clientY); });
   el.addEventListener('dragstart', () => {
     el.classList.add('dragging');
     draggedTabId = id;
@@ -132,10 +148,68 @@ window.rave.onTabOpened(({ id, url }) => {
   tabs.set(id, {
     el, title: 'Nueva pestaña', url, zoom: 1, back: false, fwd: false,
     favEl: el.querySelector('.favicon'), spinEl: el.querySelector('.spinner'), titleEl: el.querySelector('.title'),
-    isSplit: false, activeSide: 'primary'
+    audioEl: el.querySelector('.tab-audio'),
+    isSplit: false, activeSide: 'primary', pinned: false, muted: false, audible: false
   });
   saveSession();
 });
+
+// ===== Audio / silenciar pestaña =====
+function toggleMute(id) {
+  const t = tabs.get(id); if (!t) return;
+  t.muted = !t.muted;
+  window.rave.tabAction(id, 'mute', t.muted);
+  updateAudio(t);
+}
+function updateAudio(t) {
+  if (!t.audioEl) return;
+  const show = t.audible || t.muted;
+  t.audioEl.classList.toggle('hidden', !show);
+  t.audioEl.innerHTML = t.muted ? ICONS.volumeOff : ICONS.volume;
+  t.audioEl.title = t.muted ? 'Activar sonido' : 'Silenciar';
+}
+
+// ===== Fijar pestaña =====
+function togglePin(id) {
+  const t = tabs.get(id); if (!t) return;
+  t.pinned = !t.pinned;
+  t.el.classList.toggle('pinned', t.pinned);
+  reorderPinned();
+  saveSession();
+}
+function reorderPinned() {
+  [...$tabs.children]
+    .sort((a, b) => (tabs.get(+a.dataset.id)?.pinned ? 0 : 1) - (tabs.get(+b.dataset.id)?.pinned ? 0 : 1))
+    .forEach((e) => $tabs.appendChild(e));
+}
+
+// ===== Menú contextual de pestaña =====
+function showTabMenu(id, x, y) {
+  const t = tabs.get(id); if (!t) return;
+  const order = [...$tabs.querySelectorAll('.tab')].map((e) => +e.dataset.id);
+  const rightCount = order.length - order.indexOf(id) - 1;
+  showContextMenu([
+    { label: 'Nueva pestaña', action: () => createTab() },
+    { label: 'Recargar', action: () => window.rave.tabAction(id, 'reload') },
+    { label: 'Duplicar', action: () => createTab(t.url) },
+    'sep',
+    { label: t.pinned ? 'Desfijar pestaña' : 'Fijar pestaña', action: () => togglePin(id) },
+    { label: t.muted ? 'Activar sonido' : 'Silenciar pestaña', action: () => toggleMute(id) },
+    { label: 'Poner en reposo', disabled: t.suspended || isInternal(t.url) || tabs.size < 2, action: () => window.rave.tabAction(id, 'suspend') },
+    'sep',
+    { label: 'Cerrar', action: () => window.rave.tabClose(id) },
+    { label: 'Cerrar las demás', disabled: tabs.size < 2, action: () => closeOtherTabs(id) },
+    { label: 'Cerrar las de la derecha', disabled: rightCount < 1, action: () => closeTabsToRight(id) },
+  ], x, y);
+}
+function closeOtherTabs(keepId) {
+  for (const tid of [...tabs.keys()]) if (tid !== keepId && !tabs.get(tid)?.pinned) window.rave.tabClose(tid);
+}
+function closeTabsToRight(id) {
+  const order = [...$tabs.querySelectorAll('.tab')].map((e) => +e.dataset.id);
+  const idx = order.indexOf(id);
+  order.slice(idx + 1).forEach((tid) => { if (!tabs.get(tid)?.pinned) window.rave.tabClose(tid); });
+}
 
 window.rave.onTabActivated(({ id }) => {
   activeId = id;
@@ -149,7 +223,8 @@ window.rave.onTabClosed(({ id }) => {
   if (!isInternal(t.url)) closedTabs.push(t.url);
   const order = [...$tabs.querySelectorAll('.tab')].map((e) => +e.dataset.id);
   const idx = order.indexOf(id);
-  t.el.remove(); tabs.delete(id);
+  animateTabClose(t.el);
+  tabs.delete(id);
   if (activeId === id) {
     const next = order[idx + 1] ?? order[idx - 1];
     if (next != null && tabs.has(next)) window.rave.tabSelect(next);
@@ -158,14 +233,28 @@ window.rave.onTabClosed(({ id }) => {
   saveSession();
 });
 
-window.rave.onTabUpdated(({ id, title, url, favicon, loading, canGoBack, canGoForward }) => {
+// Colapsa la pestaña con una transición antes de quitarla del DOM.
+function animateTabClose(el) {
+  if (document.documentElement.classList.contains('no-anim')) { el.remove(); return; }
+  el.style.maxWidth = el.offsetWidth + 'px';
+  el.classList.add('closing');
+  requestAnimationFrame(() => { el.style.maxWidth = '0px'; el.style.opacity = '0'; });
+  el.addEventListener('transitionend', () => el.remove(), { once: true });
+  setTimeout(() => el.isConnected && el.remove(), 320);   // respaldo
+}
+
+window.rave.onTabUpdated(({ id, title, url, favicon, loading, canGoBack, canGoForward, muted, audible, suspended }) => {
   const t = tabs.get(id);
   if (!t) return;
+  if (muted !== undefined) { t.muted = muted; updateAudio(t); }
+  if (audible !== undefined) { t.audible = audible; updateAudio(t); }
+  if (suspended !== undefined) { t.suspended = suspended; t.el.classList.toggle('suspended', suspended); }
   if (title !== undefined) { t.title = title; t.titleEl.textContent = isInternal(t.url) ? 'Nueva pestaña' : (title || 'Sin título'); recordHistory(t); }
   if (url !== undefined) { t.url = url; if (isInternal(url)) { t.favEl.classList.add('hidden'); t.favUrl = null; } recordHistory(t); saveSession(); }
   if (favicon !== undefined && favicon) { t.favUrl = favicon; t.favEl.src = favicon; if (!loading) t.favEl.classList.remove('hidden'); }
   if (loading !== undefined) {
     t.spinEl.classList.toggle('hidden', !loading);
+    t.el.classList.toggle('loading', !!loading);
     if (loading) t.favEl.classList.add('hidden'); else if (t.favUrl) t.favEl.classList.remove('hidden');
     if (id === activeId) loading ? setProgress(30) : finishProgress();
   }
@@ -210,9 +299,29 @@ function setSecurity(url) {
 }
 
 // ===== Progreso =====
-let progTimer = null;
-function setProgress(p) { clearTimeout(progTimer); $progress.classList.add('loading'); $progress.style.width = p + '%'; }
-function finishProgress() { $progress.style.width = '100%'; progTimer = setTimeout(() => { $progress.classList.remove('loading'); $progress.style.width = '0%'; }, 300); }
+// Barra de progreso con avance progresivo (trickle): sube sola hacia ~90%
+// mientras carga, dando sensación de fluidez, y se completa al terminar.
+let progTimer = null, trickleTimer = null, progValue = 0;
+function setProgress(p) {
+  clearTimeout(progTimer);
+  $progress.classList.add('loading');
+  progValue = p;
+  $progress.style.width = p + '%';
+  clearInterval(trickleTimer);
+  trickleTimer = setInterval(() => {
+    if (progValue >= 90) return;
+    progValue += (90 - progValue) * 0.12;     // se acerca a 90% con desaceleración
+    $progress.style.width = progValue.toFixed(1) + '%';
+  }, 220);
+}
+function finishProgress() {
+  clearInterval(trickleTimer);
+  $progress.style.width = '100%';
+  progTimer = setTimeout(() => {
+    $progress.classList.remove('loading');
+    $progress.style.width = '0%'; progValue = 0;
+  }, 320);
+}
 
 // ===== Historial / sesión =====
 function recordHistory(t) {
@@ -223,7 +332,14 @@ function recordHistory(t) {
   if (history.length > 2000) history.length = 2000;
   store.set('history', history);
 }
+// Guardado de sesión con debounce: evita escribir en localStorage en cada
+// navegación/título (antes se hacía decenas de veces seguidas).
+let _saveSessionT = null;
 function saveSession() {
+  clearTimeout(_saveSessionT);
+  _saveSessionT = setTimeout(saveSessionNow, 400);
+}
+function saveSessionNow() {
   if (INCOGNITO) return;
   const order = [...$tabs.querySelectorAll('.tab')].map((e) => tabs.get(+e.dataset.id)).filter(Boolean);
   const sessionData = order.map((t) => {
@@ -236,7 +352,8 @@ function saveSession() {
       isSplit: isSplit,
       splitUrl: t.splitUrl || '',
       splitRatio: t.splitRatio || 0.5,
-      activeSide: t.activeSide || 'primary'
+      activeSide: t.activeSide || 'primary',
+      pinned: !!t.pinned
     };
   }).filter(Boolean);
   store.set('session', sessionData);
@@ -341,6 +458,8 @@ $menu.addEventListener('click', (e) => {
   else if (a === 'webstore') createTab('https://chromewebstore.google.com/');
   else if (a === 'update') { window.rave.updateCheck(); toast({ name: 'Actualizaciones' }, 'Buscando actualizaciones…'); }
   else if (a === 'capture') doCapture();
+  else if (a === 'print') window.rave.print();
+  else if (a === 'savepdf') window.rave.printPDF().then((f) => toast({ name: 'PDF guardado' }, f ? 'En Descargas' : 'Error al generar'));
   else openPanel(a);
   updateOverlay();
 });
@@ -437,10 +556,10 @@ async function doCapture() {
 // ===== Barra de guardar contraseña =====
 const $pwBar = $('pw-save-bar');
 let pwSaveData = null;
-$('pw-save-yes').addEventListener('click', () => {
+$('pw-save-yes').addEventListener('click', async () => {
   if (pwSaveData) {
     const existing = passwords.findIndex((p) => p.domain === pwSaveData.domain);
-    const entry = { domain: pwSaveData.domain, username: pwSaveData.username, password: xorEncrypt(pwSaveData.password), ts: Date.now() };
+    const entry = { domain: pwSaveData.domain, username: pwSaveData.username, password: await secEnc(pwSaveData.password), ts: Date.now() };
     if (existing >= 0) passwords[existing] = entry; else passwords.unshift(entry);
     store.set('passwords', passwords);
     toast({ name: 'Contraseña guardada' }, pwSaveData.domain);
@@ -601,13 +720,13 @@ function renderPasswordsPanel() {
     inp.type = inp.type === 'password' ? 'text' : 'password';
     $('pw-new-eye').innerHTML = inp.type === 'password' ? ICONS.eye : ICONS.eyeOff;
   });
-  $('pw-new-save').addEventListener('click', () => {
+  $('pw-new-save').addEventListener('click', async () => {
     const domain = $('pw-new-domain').value.trim().replace(/^https?:\/\//, '').split('/')[0];
     const username = $('pw-new-user').value.trim();
     const password = $('pw-new-pass').value;
     if (!domain || !username || !password) { alert('Completa todos los campos.'); return; }
     const existing = passwords.findIndex((p) => p.domain === domain && p.username === username);
-    const entry = { domain, username, password: xorEncrypt(password), ts: Date.now() };
+    const entry = { domain, username, password: await secEnc(password), ts: Date.now() };
     if (existing >= 0) passwords[existing] = entry; else passwords.unshift(entry);
     store.set('passwords', passwords);
     $('pw-new-domain').value = ''; $('pw-new-user').value = ''; $('pw-new-pass').value = '';
@@ -643,7 +762,7 @@ function renderPasswordsPanel() {
       row.querySelector('.pw-domain span').textContent = p.domain;
       row.querySelector('.pw-user span').textContent = p.username;
       row.querySelector('.pw-copy-user').addEventListener('click', () => { window.rave.copyText(p.username); toast({ name: 'Usuario copiado' }, p.domain); });
-      row.querySelector('.pw-copy-pass').addEventListener('click', () => { window.rave.copyText(xorDecrypt(p.password)); toast({ name: 'Contraseña copiada' }, p.domain); });
+      row.querySelector('.pw-copy-pass').addEventListener('click', async () => { window.rave.copyText(await secDec(p.password)); toast({ name: 'Contraseña copiada' }, p.domain); });
       row.querySelector('.pw-del').addEventListener('click', () => {
         if (confirm(`¿Eliminar contraseña de ${p.domain}?`)) {
           passwords.splice(passwords.indexOf(p), 1); store.set('passwords', passwords); renderPwList(filter);
@@ -658,8 +777,9 @@ function renderPasswordsPanel() {
   const a = document.createElement('div'); a.className = 'panel-actions';
   a.innerHTML = `<button class="btn ghost" id="pw-export">${ICONS.export} Exportar CSV</button>`;
   $panelBody.appendChild(a);
-  $('pw-export').addEventListener('click', () => {
-    const csv = ['Dominio,Usuario,Contraseña', ...passwords.map((p) => `${p.domain},${p.username},${xorDecrypt(p.password)}`)].join('\n');
+  $('pw-export').addEventListener('click', async () => {
+    const rows = await Promise.all(passwords.map(async (p) => `${p.domain},${p.username},${await secDec(p.password)}`));
+    const csv = ['Dominio,Usuario,Contraseña', ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a2 = document.createElement('a'); a2.href = URL.createObjectURL(blob); a2.download = 'rave-passwords.csv'; a2.click();
   });
@@ -815,43 +935,88 @@ function renderSettingsPanel() {
   const eng = Object.entries(ENGINES).map(([k, v]) => `<option value="${k}" ${settings.engine === k ? 'selected' : ''}>${v.name}</option>`).join('');
   const th = (v, l) => `<option value="${v}" ${settings.theme === v ? 'selected' : ''}>${l}</option>`;
   const rf = (v, l) => `<option value="${v}" ${settings.readerFont === v ? 'selected' : ''}>${l}</option>`;
-  const chk = (k, id) => `<input type="checkbox" id="${id}" style="width:auto;height:auto" ${settings[k] ? 'checked' : ''} />`;
+  // Interruptor (toggle) reutilizable.
+  const sw = (k, id) => `<label class="switch"><input type="checkbox" id="${id}" ${settings[k] ? 'checked' : ''}/><span class="track"></span></label>`;
+  // Fila con título + descripción opcional y un control a la derecha.
+  const item = (title, desc, control, stacked) =>
+    `<div class="set-item${stacked ? ' stacked' : ''}"><div class="set-item-text"><div class="set-item-title">${title}</div>${desc ? `<div class="set-item-desc">${desc}</div>` : ''}</div>${control}</div>`;
+
   $panelBody.innerHTML = `
-    <div class="settings-section">Búsqueda</div>
-    <div class="set-row"><label>Motor de búsqueda</label><select id="s-engine">${eng}</select></div>
-    <div class="set-row"><label>Página de inicio <small style="color:var(--ink-soft)">(vacío = nueva pestaña)</small></label><input id="s-home" placeholder="https://…" value="${settings.homepage || ''}" /></div>
+    <div class="settings-wrap">
+      <div class="settings-group">
+        <div class="settings-section">${ICONS.search} Búsqueda</div>
+        <div class="settings-card">
+          ${item('Motor de búsqueda', 'Buscador de la barra de direcciones', `<select id="s-engine">${eng}</select>`)}
+          ${item('Página de inicio', 'Vacío = nueva pestaña de Rave', `<input id="s-home" placeholder="https://…" value="${settings.homepage || ''}" />`, true)}
+        </div>
+      </div>
 
-    <div class="settings-section">Apariencia</div>
-    <div class="set-row"><label>Tema</label><select id="s-theme">${th('system', 'Sistema')}${th('light', 'Claro')}${th('dark', 'Oscuro')}</select></div>
-    <div class="set-row set-row-check"><label for="s-bar">Mostrar barra de marcadores</label>${chk('showBookmarksBar', 's-bar')}</div>
-    <div class="set-row set-row-check"><label for="s-anim">Animaciones</label>${chk('animations', 's-anim')}</div>
-    <div class="set-row"><label>Fuente del modo lector</label><select id="s-rf">${rf('serif', 'Serif (Georgia)')}${rf('sans', 'Sans-serif (system)')}</select></div>
+      <div class="settings-group">
+        <div class="settings-section">${ICONS.settings} Apariencia</div>
+        <div class="settings-card">
+          ${item('Tema', '', `<select id="s-theme">${th('system', 'Sistema')}${th('light', 'Claro')}${th('dark', 'Oscuro')}${th('eclipse', 'Orange Eclipse')}</select>`)}
+          ${item('Barra de marcadores', 'Mostrar bajo la barra de direcciones', sw('showBookmarksBar', 's-bar'))}
+          ${item('Animaciones', 'Transiciones y efectos de la interfaz', sw('animations', 's-anim'))}
+          ${item('Fuente del modo lector', '', `<select id="s-rf">${rf('serif', 'Serif (Georgia)')}${rf('sans', 'Sans-serif (system)')}</select>`)}
+        </div>
+      </div>
 
-    <div class="settings-section">Privacidad</div>
-    <div class="set-row set-row-check"><label for="s-pw">Ofrecer guardar contraseñas</label>${chk('savePasswords', 's-pw')}</div>
+      <div class="settings-group">
+        <div class="settings-section">${ICONS.reload} Rendimiento</div>
+        <div class="settings-card">
+          ${item('Poner pestañas en reposo', 'Libera RAM de las pestañas inactivas tras un tiempo', `<select id="s-sleep">
+            <option value="0" ${settings.sleepTimeout == 0 ? 'selected' : ''}>Nunca</option>
+            <option value="1" ${settings.sleepTimeout == 1 ? 'selected' : ''}>1 minuto</option>
+            <option value="5" ${settings.sleepTimeout == 5 ? 'selected' : ''}>5 minutos</option>
+            <option value="10" ${settings.sleepTimeout == 10 ? 'selected' : ''}>10 minutos</option>
+            <option value="30" ${settings.sleepTimeout == 30 ? 'selected' : ''}>30 minutos</option>
+            <option value="60" ${settings.sleepTimeout == 60 ? 'selected' : ''}>1 hora</option>
+          </select>`)}
+        </div>
+      </div>
 
-    <div class="settings-section">Datos</div>
-    <div class="set-row" style="flex-direction:row;gap:8px;flex-wrap:wrap">
-      <button class="btn ghost" id="s-exp-hist">${ICONS.export} Exportar historial</button>
-      <button class="btn ghost" id="s-exp-bm">${ICONS.export} Exportar marcadores</button>
-      <label class="btn ghost" style="cursor:pointer">${ICONS.import_} Importar marcadores<input type="file" id="s-imp-bm" accept=".json" style="display:none"></label>
+      <div class="settings-group">
+        <div class="settings-section">${ICONS.shield} Privacidad y seguridad</div>
+        <div class="settings-card">
+          ${item('Protección contra rastreo', 'Estricta añade DNT/GPC y modo solo HTTPS', `<select id="s-track">
+            <option value="off" ${settings.trackingLevel === 'off' ? 'selected' : ''}>Desactivada</option>
+            <option value="standard" ${settings.trackingLevel === 'standard' ? 'selected' : ''}>Estándar</option>
+            <option value="strict" ${settings.trackingLevel === 'strict' ? 'selected' : ''}>Estricta</option>
+          </select>`)}
+          ${item('No rastrear (DNT) y GPC', 'Pide a las webs no rastrearte', sw('dnt', 's-dnt'))}
+          ${item('Modo solo HTTPS', 'Fuerza conexiones seguras', sw('httpsOnly', 's-https'))}
+          ${item('Borrar datos al salir', 'Limpia historial y caché al cerrar', sw('clearOnExit', 's-clear'))}
+          ${item('Guardar contraseñas', 'Ofrecer guardar credenciales', sw('savePasswords', 's-pw'))}
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-section">${ICONS.download} Datos</div>
+        <div class="settings-card">
+          ${item('Exportar e importar', 'Copias de seguridad en JSON', `<div class="set-btn-row">
+            <button class="btn ghost" id="s-exp-hist">Historial</button>
+            <button class="btn ghost" id="s-exp-bm">Marcadores</button>
+            <label class="btn ghost" style="cursor:pointer">Importar<input type="file" id="s-imp-bm" accept=".json" style="display:none"></label>
+          </div>`, true)}
+          ${item('Importar de otro navegador', 'Trae tus marcadores de Chrome, Edge o Brave', `<button class="btn ghost" id="s-imp-browser">Importar</button>`)}
+          ${item('Borrar todos los datos', 'Historial, marcadores, contraseñas, notas y sesiones', `<button class="btn danger" id="s-clear-data">Borrar</button>`)}
+        </div>
+      </div>
     </div>
-    <div class="set-row">
-      <button class="btn" id="s-clear-data" style="background:#c0392b">Borrar todos los datos del navegador</button>
-    </div>
 
-    <div class="set-row" style="flex-direction:row;gap:8px;margin-top:8px">
-      <button class="btn" id="s-save">Guardar ajustes</button>
-    </div>`;
+    <div class="settings-footer"><button class="btn" id="s-save">Guardar ajustes</button></div>`;
 
   $('s-save').addEventListener('click', () => {
     settings = {
       engine: $('s-engine').value, homepage: $('s-home').value.trim(),
       theme: $('s-theme').value, showBookmarksBar: $('s-bar').checked,
       animations: $('s-anim').checked, readerFont: $('s-rf').value,
-      savePasswords: $('s-pw').checked
+      savePasswords: $('s-pw').checked,
+      trackingLevel: $('s-track').value, dnt: $('s-dnt').checked,
+      httpsOnly: $('s-https').checked, clearOnExit: $('s-clear').checked,
+      sleepTimeout: parseInt($('s-sleep').value, 10)
     };
-    store.set('settings', settings); applyTheme(); applyAnimations();
+    store.set('settings', settings); applyTheme(); applyAnimations(); applyPrivacy(); applySleep();
     renderBookmarksBar();
     $panel.classList.add('hidden'); updateOverlay();
     toast({ name: 'Ajustes guardados' }, '');
@@ -862,6 +1027,15 @@ function renderSettingsPanel() {
     const text = await e.target.files[0]?.text();
     if (!text) return;
     try { const data = JSON.parse(text); if (Array.isArray(data)) { bookmarks = data; store.set('bookmarks', bookmarks); renderBookmarksBar(); toast({ name: 'Marcadores importados' }, data.length + ' marcadores'); } } catch { alert('Archivo inválido.'); }
+  });
+  $('s-imp-browser').addEventListener('click', async () => {
+    const r = await window.rave.importBookmarks();
+    if (!r || !r.bookmarks.length) { toast({ name: 'Importar' }, 'No se encontraron marcadores'); return; }
+    const have = new Set(bookmarks.map((b) => b.url));
+    let added = 0;
+    for (const b of r.bookmarks) if (!have.has(b.url)) { bookmarks.push({ title: b.title, url: b.url }); have.add(b.url); added++; }
+    store.set('bookmarks', bookmarks); renderBookmarksBar();
+    toast({ name: `Importados de ${r.source}` }, `${added} marcadores nuevos`);
   });
   $('s-clear-data').addEventListener('click', () => {
     if (confirm('¿Borrar TODOS los datos del navegador? Esto incluye historial, marcadores, contraseñas, descargas, notas y sesiones. Esta acción no se puede deshacer.')) {
@@ -877,6 +1051,17 @@ function applyTheme() {
 }
 function applyAnimations() {
   document.documentElement.classList.toggle('no-anim', !settings.animations);
+}
+function applyPrivacy() {
+  window.rave.setPrivacy({
+    level: settings.trackingLevel || 'standard',
+    dnt: !!settings.dnt,
+    httpsOnly: !!settings.httpsOnly,
+    clearOnExit: !!settings.clearOnExit
+  });
+}
+function applySleep() {
+  window.rave.setSleep(settings.sleepTimeout ?? 10);
 }
 
 // ===== Utilidades =====
@@ -984,6 +1169,38 @@ function showContextMenu(items, x, y) {
   $ctx.style.top = Math.max(4, Math.min(y, winH - r.height - 8)) + 'px';
 }
 
+// ===== Permisos por sitio =====
+let permOpen = false;
+const PERM_TEXT = {
+  media: 'usar tu cámara y micrófono', audioCapture: 'usar tu micrófono', videoCapture: 'usar tu cámara',
+  geolocation: 'conocer tu ubicación', notifications: 'enviarte notificaciones',
+  midi: 'usar dispositivos MIDI', midiSysex: 'usar dispositivos MIDI',
+  clipboard: 'leer tu portapapeles', 'clipboard-read': 'leer tu portapapeles',
+  'display-capture': 'capturar tu pantalla', openExternal: 'abrir otra aplicación'
+};
+window.rave.onPermissionRequest(({ id, permission, origin }) => {
+  let host = origin; try { host = new URL(origin).hostname; } catch {}
+  const wrap = document.createElement('div');
+  wrap.className = 'perm-dialog';
+  wrap.innerHTML = `<div class="perm-card">
+    <div class="perm-icon">${ICONS.shield}</div>
+    <div class="perm-title"></div>
+    <label class="perm-remember"><input type="checkbox" id="perm-remember" /> Recordar mi decisión para este sitio</label>
+    <div class="perm-actions">
+      <button class="btn ghost" id="perm-block">Bloquear</button>
+      <button class="btn" id="perm-allow">Permitir</button>
+    </div></div>`;
+  wrap.querySelector('.perm-title').textContent = `${host} quiere ${PERM_TEXT[permission] || ('usar: ' + permission)}`;
+  document.body.appendChild(wrap);
+  permOpen = true; updateOverlay();
+  const done = (allow) => {
+    window.rave.permissionResponse({ id, allow, remember: wrap.querySelector('#perm-remember').checked });
+    wrap.remove(); permOpen = false; updateOverlay();
+  };
+  wrap.querySelector('#perm-allow').addEventListener('click', () => done(true));
+  wrap.querySelector('#perm-block').addEventListener('click', () => done(false));
+});
+
 // ===== Disposición / overlay =====
 function measureLayout() {
   const h = $('chrome').offsetHeight + ($('pw-save-bar').classList.contains('hidden') ? 0 : $('pw-save-bar').offsetHeight);
@@ -993,7 +1210,7 @@ function measureLayout() {
 function updateOverlay() {
   const on = !$menu.classList.contains('hidden') || !$panel.classList.contains('hidden') ||
     !$suggest.classList.contains('hidden') || !$extMenu.classList.contains('hidden') ||
-    !$shieldMenu.classList.contains('hidden') || !!$ctx;
+    !$shieldMenu.classList.contains('hidden') || !!$ctx || permOpen;
   window.rave.setOverlay(on);
 }
 new ResizeObserver(measureLayout).observe($('chrome'));
@@ -1003,7 +1220,10 @@ window.addEventListener('resize', measureLayout);
 const $winMax = $('win-max');
 $('win-min').addEventListener('click', () => window.rave.winMinimize());
 $winMax.addEventListener('click', () => window.rave.winMaximize());
-$('win-close').addEventListener('click', () => window.rave.winClose());
+$('win-close').addEventListener('click', () => {
+  if (tabs.size > 1 && !confirm(`¿Cerrar Rave con ${tabs.size} pestañas abiertas?`)) return;
+  window.rave.winClose();
+});
 function setMaxIcon(m) { $winMax.innerHTML = m ? ICONS.win_restore : ICONS.win_max; }
 window.rave.onWinState(setMaxIcon);
 window.rave.winIsMaximized().then(setMaxIcon);
@@ -1023,7 +1243,7 @@ window.addEventListener('keydown', (e) => {
   else if (c && s && k === 'r') { e.preventDefault(); window.rave.injectReader(); }
   else if (c && s && k === 'p') { e.preventDefault(); doCapture(); }
   else if (c && s && k === 'd') { e.preventDefault(); if (activeId != null) window.rave.tabSplitToggle(activeId, newTabURL()); }
-  else if (c && k === 'p') { e.preventDefault(); openPanel('passwords'); }
+  else if (c && k === 'p') { e.preventDefault(); window.rave.print(); }
   else if (c && (k === '+' || k === '=')) { e.preventDefault(); applyZoom(0.1); }
   else if (c && k === '-') { e.preventDefault(); applyZoom(-0.1); }
   else if (c && k === '0') { e.preventDefault(); applyZoom(0, 1); }
@@ -1031,32 +1251,53 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ===== Escudo =====
+// Optimizado: se pausa con la ventana oculta y solo toca el DOM si cambia.
+let _lastBlocked = -1;
 setInterval(async () => {
+  if (document.hidden) return;
   try {
     const count = await window.rave.getBlockedCount();
+    if (count === _lastBlocked) return;
+    _lastBlocked = count;
     $('shield-count').textContent = count;
     const menuCount = $('shield-menu-count');
     if (menuCount) menuCount.textContent = count;
   } catch {}
-}, 1000);
+}, 1200);
 
 // ===== Arranque =====
 applyTheme();
 applyAnimations();
+applyPrivacy();
+applySleep();
 renderBookmarksBar();
 measureLayout();
 // Iconos en botones del menú (recargamos tras crear el HTML)
 document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = ICONS[el.dataset.icon] || ''; });
+// Recuperación tras cierre inesperado: marcamos "en ejecución" al arrancar y
+// "cierre limpio" al descargar. Si al abrir no estaba limpio, fue un crash.
+const wasClean = INCOGNITO ? true : store.get('cleanExit', true);
+if (!INCOGNITO) store.set('cleanExit', false);
+window.addEventListener('beforeunload', () => { if (!INCOGNITO) store.set('cleanExit', true); });
+
 const saved = INCOGNITO ? [] : store.get('session', []);
+if (!wasClean && saved.length) {
+  setTimeout(() => toast({ name: 'Sesión restaurada' }, 'Recuperada tras un cierre inesperado'), 800);
+}
 if (saved.length) {
   saved.forEach((item) => {
     if (typeof item === 'string') {
       createTab(item);
     } else if (item && typeof item === 'object') {
       createTab(item.url).then((id) => {
-        if (id && item.isSplit) {
+        if (!id) return;
+        if (item.isSplit) {
           window.rave.tabSplitToggle(id, item.splitUrl, item.splitRatio, item.activeSide);
         }
+        if (item.pinned) setTimeout(() => {
+          const t = tabs.get(id);
+          if (t && !t.pinned) { t.pinned = true; t.el.classList.add('pinned'); reorderPinned(); }
+        }, 0);
       });
     }
   });
