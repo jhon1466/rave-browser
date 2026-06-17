@@ -567,7 +567,19 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 // ====== IPC ======
-const st = (e) => states.get(e.sender.id);
+const st = (e) => {
+  const senderId = e.sender.id;
+  if (states.has(senderId)) return states.get(senderId);
+  for (const s of states.values()) {
+    if (s.ui.webContents.id === senderId) return s;
+    for (const t of s.tabs.values()) {
+      if (t.view.webContents.id === senderId) return s;
+      if (t.splitView && t.splitView.webContents.id === senderId) return s;
+      if (t.dividerView && t.dividerView.webContents.id === senderId) return s;
+    }
+  }
+  return null;
+};
 
 ipcMain.handle('rave:get-blocked-count', () => global.__raveBlockedCount || 0);
 ipcMain.on('rave:new-incognito', () => createWindow(true));
