@@ -43,6 +43,9 @@
       <button id="shield" class="icon-btn shield-btn" title="Anuncios y rastreadores bloqueados">
         <span data-icon="shield"></span><span id="shield-count">0</span>
       </button>
+      <button id="dl-btn" class="icon-btn" data-icon="download" title="Descargas" style="position:relative">
+        <span class="dl-badge"></span>
+      </button>
       <button id="ext-btn" class="icon-btn" data-icon="puzzle" title="Extensiones"></button>
       <button id="menu-btn" class="icon-btn" data-icon="menu" title="Menú"></button>
 
@@ -79,8 +82,10 @@
         <button data-act="passwords"><span data-icon="key"></span> Contraseñas</button>
         <button data-act="cookies"><span data-icon="cookie"></span> Cookies del sitio</button>
         <button data-act="notes"><span data-icon="note"></span> Notas</button>
+        <button data-act="sidebar"><span data-icon="layers"></span> Panel lateral</button>
         <button data-act="sessions"><span data-icon="layers"></span> Sesiones guardadas</button>
         <button data-act="capture"><span data-icon="camera"></span> Captura de pantalla</button>
+        <button data-act="qr"><span data-icon="globe"></span> Crear QR de esta página</button>
         <div class="sep"></div>
         <button data-act="webstore"><span data-icon="download"></span> Tienda de extensiones (Chrome)</button>
         <button data-act="extensions"><span data-icon="settings"></span> Extensiones instaladas</button>
@@ -95,6 +100,7 @@
         <button data-act="find"><span data-icon="search"></span> Buscar en la página (Ctrl+F)</button>
         <button data-act="print"><span data-icon="download"></span> Imprimir (Ctrl+P)</button>
         <button data-act="savepdf"><span data-icon="download"></span> Guardar como PDF</button>
+        <button data-act="pip"><span data-icon="layers"></span> Picture in Picture</button>
         <button data-act="update"><span data-icon="reload"></span> Buscar actualizaciones</button>
         <button data-act="settings"><span data-icon="settings"></span> Ajustes</button>
       </div>
@@ -109,6 +115,22 @@
 
     <!-- Barra de marcadores -->
     <div id="bookmarks-bar"></div>
+
+    <!-- Barra de controles de medios -->
+    <div id="media-bar" class="media-bar hidden">
+      <div id="media-info">
+        <img id="media-art" class="media-art" src="" style="display:none">
+        <div class="media-text">
+          <div id="media-title" class="media-title"></div>
+          <div id="media-artist" class="media-artist"></div>
+        </div>
+      </div>
+      <div class="media-controls">
+        <button class="icon-btn" id="media-prev" title="Anterior">⏮</button>
+        <button class="icon-btn" id="media-play" title="Reproducir/Pausar">⏸</button>
+        <button class="icon-btn" id="media-next" title="Siguiente">⏭</button>
+      </div>
+    </div>
 
     <!-- Buscar en página (en flujo: empuja la página hacia abajo) -->
     <div id="find-bar" class="hidden">
@@ -155,6 +177,33 @@
       <div class="drop-zone-content">
         <span data-icon="split"></span>
         <p>Arrastra aquí para dividir a la derecha</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel lateral (Sidebar) -->
+  <div id="sidebar" class="sidebar hidden">
+    <div class="sidebar-header">
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-panel="bookmarks">Marcadores</button>
+        <button class="sidebar-tab" data-panel="history">Historial</button>
+        <button class="sidebar-tab" data-panel="notes">Notas</button>
+      </div>
+      <button class="icon-btn" id="sidebar-close" title="Cerrar panel lateral">×</button>
+    </div>
+    <div class="sidebar-body" id="sidebar-body"></div>
+  </div>
+
+  <!-- Bienvenida (primera ejecución) -->
+  <div id="welcome" class="hidden">
+    <div id="welcome-card">
+      <div class="welcome-logo">Rave<span class="dot">.</span></div>
+      <h2 class="welcome-title">Bienvenido a Rave</h2>
+      <p class="welcome-text">Un navegador minimalista en blanco, negro y gris con bloqueo de anuncios, pestañas, incógnito y privacidad integrada.</p>
+      <p class="welcome-sub">Puedes establecer Rave como navegador predeterminado para abrir enlaces desde otras aplicaciones.</p>
+      <div class="welcome-actions">
+        <button id="welcome-start" class="btn">Empezar</button>
+        <button id="welcome-default" class="btn ghost">Usar como predeterminado</button>
       </div>
     </div>
   </div>

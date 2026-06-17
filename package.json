@@ -1,6 +1,6 @@
 {
   "name": "rave",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Rave — un navegador minimalista en blanco, negro y gris basado en Chromium (Electron).",
   "main": "src/main.js",
   "scripts": {
@@ -13,10 +13,43 @@
   "build": {
     "appId": "com.rave.browser",
     "productName": "Rave",
-    "files": ["src/**/*", "node_modules/**/*", "package.json"],
-    "win": { "target": "nsis", "icon": "build/icon.png" },
+    "files": [
+      "src/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
     "icon": "build/icon.png",
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true },
+    "protocols": [
+      {
+        "name": "Rave Browser",
+        "schemes": [
+          "http",
+          "https",
+          "ftp"
+        ]
+      }
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "htm",
+          "html",
+          "xhtml"
+        ],
+        "name": "Rave HTML Document",
+        "description": "HTML Document",
+        "role": "Editor"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
+    },
     "publish": [
       {
         "provider": "github",
@@ -34,6 +67,7 @@
     "cross-fetch": "^4.1.0",
     "electron-chrome-extensions": "^4.9.0",
     "electron-chrome-web-store": "^0.13.0",
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "qrcode": "^1.5.4"
   }
 }

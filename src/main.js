@@ -1,4 +1,4 @@
-const { app, BaseWindow, WebContentsView, Menu, session, ipcMain, shell, safeStorage } = require('electron');
+﻿const { app, BaseWindow, WebContentsView, Menu, session, ipcMain, shell, safeStorage, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -22,9 +22,49 @@ const { setupAdblock, enableBlockingOn, disableBlockingOn } = require('./adblock
 const { installChromeWebStore, uninstallExtension } = require('electron-chrome-web-store');
 const { ElectronChromeExtensions } = require('electron-chrome-extensions');
 const { setupUpdater, checkNow, quitAndInstall } = require('./updater');
+const { isDefaultBrowser, setDefaultBrowser } = require('./defaultBrowser');
+const { registerShieldsIPC, installShieldsOnSession, getShields, shieldsAllowSet, setGlobalHttpsOnly } = require('./shields');
+const { addHistory, registerHistoryIPC } = require('./history');
 
 // Envía un mensaje a la interfaz de todas las ventanas abiertas.
 const broadcast = (ch, data) => { for (const s of states.values()) s.ui.webContents.send(ch, data); };
+// ====== Zoom persistente por origen ======
+const ZOOM_FILE = () => path.join(app.getPath('userData'), 'zoom.json');
+let _zoom = null;
+function loadZoom() {
+  if (_zoom) return _zoom;
+  try { _zoom = JSON.parse(fs.readFileSync(ZOOM_FILE(), 'utf8')); } catch { _zoom = {}; }
+  return _zoom;
+}
+function saveZoom(origin, factor) {
+  const z = loadZoom();
+  if (factor === 1) delete z[origin]; else z[origin] = factor;
+  _zoom = z;
+  try { fs.writeFileSync(ZOOM_FILE(), JSON.stringify(z)); } catch {}
+}
+function getZoom(url) {
+  try { return loadZoom()[new URL(url).origin] || 1; } catch { return 1; }
+}
+
+// ====== Motores de busqueda personalizados ======
+const ENGINES_FILE = () => path.join(app.getPath('userData'), 'search-engines.json');
+const DEFAULT_ENGINES = [
+  { id: 'google',    name: 'Google',     url: 'https://www.google.com/search?q=%s',         default: false },
+  { id: 'ddg',       name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=%s',               default: true  },
+  { id: 'brave',     name: 'Brave',      url: 'https://search.brave.com/search?q=%s',       default: false },
+  { id: 'bing',      name: 'Bing',       url: 'https://www.bing.com/search?q=%s',           default: false },
+  { id: 'startpage', name: 'Startpage',  url: 'https://www.startpage.com/search?query=%s',  default: false },
+];
+let _engines = null;
+function loadEngines() {
+  if (_engines) return _engines;
+  try { _engines = JSON.parse(fs.readFileSync(ENGINES_FILE(), 'utf8')); } catch { _engines = [...DEFAULT_ENGINES]; }
+  return _engines;
+}
+function saveEngines(engines) { _engines = engines; try { fs.writeFileSync(ENGINES_FILE(), JSON.stringify(engines)); } catch {} }
+function getDefaultEngine() { return loadEngines().find(e => e.default) || DEFAULT_ENGINES[1]; }
+function getSearchUrl(query) { return getDefaultEngine().url.replace('%s', encodeURIComponent(query)); }
+
 
 let extensions = null;   // instancia de ElectronChromeExtensions (APIs chrome.* + popups)
 const NEWTAB_FALLBACK = 'https://duckduckgo.com/';
@@ -85,6 +125,81 @@ const UI_FILE = path.join(__dirname, 'renderer', 'index.html');
 // Script anti-anuncios de YouTube (respaldo, por si el scriptlet de uBO falla).
 const YT_ADSKIP = `(function(){if(window.__raveYT)return;window.__raveYT=true;function t(){try{var v=document.querySelector('video'),p=document.querySelector('.html5-video-player');var s=document.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button');if(s)s.click();if(p&&p.classList.contains('ad-showing')&&v){if(!isNaN(v.duration)&&isFinite(v.duration))v.currentTime=v.duration;v.muted=true;v.playbackRate=16;}var o=document.querySelector('.ytp-ad-overlay-close-button,.ytp-ad-overlay-close-container');if(o)o.click();document.querySelectorAll('#player-ads,.ytp-ad-overlay-slot,ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-ad-slot-renderer,ytd-in-feed-ad-layout-renderer,#masthead-ad').forEach(function(e){e.remove();});}catch(e){}}setInterval(t,250);t();})();`;
 
+const PIP_SCRIPT = `(function(){
+  if(window.__ravePIP)return; window.__ravePIP=true;
+  const ST=document.createElement('style');
+  ST.textContent='.__rpip{position:fixed;z-index:2147483647;padding:7px 16px;border:none;border-radius:20px;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;font-size:13px;font-weight:500;font-family:system-ui,sans-serif;cursor:pointer;display:flex;align-items:center;gap:7px;opacity:0;pointer-events:none;transition:opacity 180ms ease;white-space:nowrap;box-shadow:0 2px 12px rgba(0,0,0,0.4);}.__rpip.show{opacity:1;pointer-events:auto;}.__rpip svg{width:16px;height:16px;fill:#fff;flex-shrink:0;}.__rpip:hover{background:rgba(0,0,0,0.92);}';
+  const head=document.head||document.documentElement;
+  head.appendChild(ST);
+  const ICON='<svg viewBox="0 0 24 24"><path d="M19 7H9a2 2 0 0 0-2 2v6H5V9a4 4 0 0 1 4-4h10v2zm2 4h-8a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1z"/></svg>';
+  let btn=null,hideTimer=null,activeVideo=null;
+  function ensureBtn(){
+    if(btn&&btn.isConnected)return btn;
+    btn=document.createElement('button');
+    btn.className='__rpip';
+    btn.innerHTML=ICON+'<span>Picture in Picture</span>';
+    btn.addEventListener('click',e=>{
+      e.stopPropagation();e.preventDefault();
+      if(activeVideo)activeVideo.requestPictureInPicture().catch(()=>{});
+    });
+    btn.addEventListener('mouseenter',()=>clearTimeout(hideTimer));
+    btn.addEventListener('mouseleave',()=>scheduleHide());
+    (document.body||document.documentElement).appendChild(btn);
+    return btn;
+  }
+  function showOn(video){
+    const r=video.getBoundingClientRect();
+    if(r.width<160||r.height<90||r.top<0)return;
+    activeVideo=video;
+    const b=ensureBtn();
+    b.style.left=Math.round(r.left+r.width/2)+'px';
+    b.style.top=Math.round(r.top+14)+'px';
+    b.style.transform='translateX(-50%)';
+    clearTimeout(hideTimer);
+    b.classList.add('show');
+  }
+  function scheduleHide(){hideTimer=setTimeout(()=>{btn&&btn.classList.remove('show');},500);}
+  function findVideo(x,y){
+    // Busca en todos los elementos bajo el cursor, incluyendo capas encima del video
+    const els=document.elementsFromPoint(x,y);
+    for(const el of els){
+      if(el.tagName==='VIDEO')return el;
+    }
+    // Fallback: buscar el video más cercano al punto
+    let best=null,bestDist=Infinity;
+    document.querySelectorAll('video').forEach(v=>{
+      const r=v.getBoundingClientRect();
+      if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom){
+        const dist=Math.hypot(x-(r.left+r.width/2),y-(r.top+r.height/2));
+        if(dist<bestDist){bestDist=dist;best=v;}
+      }
+    });
+    return best;
+  }
+  let lastX=0,lastY=0;
+  document.addEventListener('mousemove',e=>{
+    lastX=e.clientX;lastY=e.clientY;
+    const v=findVideo(e.clientX,e.clientY);
+    if(v&&!v.disablePictureInPicture&&(v.readyState||0)>=1)showOn(v);
+    else if(!btn?.matches(':hover'))scheduleHide();
+  },{passive:true,capture:true});
+})();`;
+
+const COOKIE_CONSENT_CSS = `
+  #cookie-banner, #cookie-notice, #cookie-popup, #cookie-bar,
+  #cookiebanner, #cookieConsent, #cookie-consent, #cookie_consent,
+  .cookie-banner, .cookie-notice, .cookie-popup, .cookie-bar,
+  .cookiebanner, .cookieConsent, .cookie-consent, .cookie_consent,
+  [id*="cookie-banner"], [id*="cookie-notice"], [id*="cookiebanner"],
+  [class*="cookie-banner"], [class*="cookie-notice"],
+  #CybotCookiebotDialog, #onetrust-banner-sdk, .cc-window,
+  #gdpr-banner, .gdpr-banner, [id*="gdpr"], [class*="gdpr-popup"],
+  #sp-cc, .sp-message-container, #qc-cmp2-container,
+  .fc-dialog-container, #usercentrics-root, #didomi-popup,
+  #cookielaw-icon, .pea_cook_wrapper { display: none !important; }
+  body { overflow: auto !important; }
+`;
+
 // ====== Creación de ventanas ======
 function createWindow(incognito = false) {
   let partition = null, tabSession = session.defaultSession;
@@ -96,6 +211,7 @@ function createWindow(incognito = false) {
     installPrivacy(tabSession);
     installPermissions(tabSession);
     installCerts(tabSession);
+    installShieldsOnSession(tabSession);
   }
 
   const ws = incognito ? null : loadWinState();
@@ -104,7 +220,7 @@ function createWindow(incognito = false) {
     x: ws?.x, y: ws?.y,
     minWidth: 720, minHeight: 420,
     frame: false, backgroundColor: incognito ? '#0d0d0f' : '#ffffff', title: 'Rave',
-    icon: path.join(__dirname, '..', 'build', 'icon.png')
+    icon: path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
   });
   if (ws?.maximized) win.maximize();
 
@@ -131,6 +247,17 @@ function createWindow(incognito = false) {
   win.on('close', persist);
   win.on('closed', () => states.delete(ui.webContents.id));
 
+  // Al restaurar desde minimizado, forzar repintado de todas las vistas
+  const repaintAll = () => {
+    ui.webContents.invalidate();
+    for (const t of state.tabs.values()) {
+      t.view?.webContents?.invalidate();
+      t.splitView?.webContents?.invalidate();
+    }
+  };
+  win.on('restore', repaintAll);
+  win.on('show', repaintAll);
+
   layout();
   return state;
 }
@@ -152,7 +279,9 @@ function relayout(state) {
       tab.view.setBounds({ x: 0, y, width: splitW, height });
       if (tab.dividerView) {
         tab.dividerView.setBounds({ x: splitW, y, width: gap, height });
-        tab.dividerView.setVisible(true);
+        // Ocultar el divisor cuando hay un overlay activo (ajustes, panel, menú)
+        // para que no quede flotando encima del modal.
+        tab.dividerView.setVisible(!state.overlay);
       }
       tab.splitView.setBounds({ x: splitW + gap, y, width: w - (splitW + gap), height });
     } else {
@@ -164,13 +293,38 @@ function relayout(state) {
   state.ui.webContents.send('rave:view-size', { w, h });
 }
 
+// Detecta si una URL es un popup de autenticación OAuth que necesita window.opener
+function isAuthPopupUrl(u) {
+  return /accounts\.google\.com|appleid\.apple\.com|facebook\.com\/dialog|twitter\.com\/oauth|github\.com\/login\/oauth|login\.microsoftonline\.com|discord\.com\/oauth2|auth\d*\.|oauth\.|\/oauth|\/login\/oauth|sso\.|\/signin|\/authorize\?/i.test(u);
+}
+
+function makeWindowOpenHandler(state) {
+  return ({ url: u, features }) => {
+    if (isAuthPopupUrl(u) || (features && /popup|width=\d{2,3},height=\d{2,3}/.test(features))) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520, height: 680, resizable: true,
+          webPreferences: {
+            partition: state.incognito ? state.partition : undefined,
+            nodeIntegration: false, contextIsolation: true, sandbox: true
+          }
+        }
+      };
+    }
+    openTab(state, u);
+    return { action: 'deny' };
+  };
+}
+
 // ====== Pestañas ======
 function openTab(state, url) {
   const id = tabSeq++;
+  const PIP_PRELOAD = path.join(__dirname, 'pip.js');
   const view = new WebContentsView({
     webPreferences: state.incognito
-      ? { partition: state.partition, spellcheck: true }
-      : { spellcheck: true }
+      ? { partition: state.partition, spellcheck: true, preload: PIP_PRELOAD }
+      : { spellcheck: true, preload: PIP_PRELOAD }
   });
   view.setBackgroundColor(state.incognito ? '#0d0d0f' : '#ffffff');
   state.win.contentView.addChildView(view, 0);          // por debajo de la interfaz
@@ -201,7 +355,10 @@ function openTab(state, url) {
   });
   wc.on('page-title-updated', (_e, title) => {
     const t = state.tabs.get(id);
-    if (!t || t.activeFocus === 'primary') send({ title });
+    if (!t || t.activeFocus === 'primary') {
+      send({ title });
+      if (!state.incognito) addHistory(t ? t.url || wc.getURL() : wc.getURL(), title, t && t.favicon);
+    }
   });
   wc.on('page-favicon-updated', (_e, favicons) => {
     const t = state.tabs.get(id);
@@ -210,19 +367,22 @@ function openTab(state, url) {
   const onNav = () => {
     const t = state.tabs.get(id);
     if (t && t.suspended) return;            // ignora la navegación a about:blank
-    if (t) t.url = wc.getURL();
+    if (t) { t.url = wc.getURL(); t._readerCssKey = null; }
     if (!t || t.activeFocus === 'primary') {
       send({ url: wc.getURL(), ...navState() });
     }
     maybeYouTube(wc);
   };
-  wc.on('did-navigate', onNav);
+  wc.on('did-navigate', (e, url) => { onNav(); const z = getZoom(url); if (z !== 1) wc.setZoomFactor(z); });
   wc.on('did-navigate-in-page', onNav);
   wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); });
   // Indicador de audio de la pestaña.
-  wc.on('audio-state-changed', (ev) => {
+  wc.on('audio-state-changed', () => {
     const t = state.tabs.get(id);
-    if (!t || t.activeFocus === 'primary') send({ audible: ev.audible });
+    const audible = wc.isCurrentlyAudible();
+    if (!t || t.activeFocus === 'primary') send({ audible });
+    // Notificar al chrome sobre el estado de medios global
+    state.ui.webContents.send('rave:media-state', { id, playing: audible });
   });
   // Página de error cuando falla la carga principal (sin conexión, DNS, etc.).
   wc.on('did-fail-load', (_e, code, desc, failUrl, isMainFrame) => {
@@ -245,9 +405,23 @@ function openTab(state, url) {
   });
   wc.on('context-menu', (_e, p) => {
     const t = state.tabs.get(id);
-    if (!t || t.activeFocus === 'primary') state.ui.webContents.send('rave:context-menu', { id, p });
+    if (!t || t.activeFocus === 'primary') {
+      // El panel primario empieza en x=0, sin offset
+      state.ui.webContents.send('rave:context-menu', { id, p: { ...p, x: p.x, panelOffsetX: 0 } });
+    }
   });
-  wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
+  wc.setWindowOpenHandler(makeWindowOpenHandler(state));
+
+  // Cuando el usuario hace clic en el lado primario, recuperar el foco si estaba en el secundario
+  wc.on('input-event', (_e, inputEvent) => {
+    if (inputEvent.type !== 'mouseDown') return;
+    const t = state.tabs.get(id);
+    if (t && t.splitView && t.activeFocus !== 'primary') {
+      t.activeFocus = 'primary';
+      state.ui.webContents.send('rave:tab-split-focus', { id, side: 'primary' });
+      notifyTabUpdated(state, id, wc);
+    }
+  });
 
   // Modo solo HTTPS: actualiza la navegación principal de http:// a https://.
   wc.on('will-navigate', (e, navUrl) => {
@@ -258,7 +432,13 @@ function openTab(state, url) {
   });
 
   // Da de alta la pestaña en el sistema de extensiones (chrome.tabs + acciones).
-  if (extensions && !state.incognito) extensions.addTab(wc, state.win);
+  if (extensions && !state.incognito && !wc.isDestroyed()) {
+    try { extensions.addTab(wc, state.win); } catch {}
+  }
+
+  // Si la página cierra su propia ventana (p. ej. popup de login OAuth),
+  // cerramos la pestaña en vez de dejar un webContents muerto.
+  wc.on('destroyed', () => { if (state.tabs.has(id)) closeTab(state, id); });
 
   wc.loadURL(url);
   state.ui.webContents.send('rave:tab-opened', { id, url });
@@ -326,10 +506,13 @@ function selectTab(state, id) {
     const isAct = (tid === id);
     t.view.setVisible(isAct);
     if (t.splitView) t.splitView.setVisible(isAct);
-    if (t.dividerView) t.dividerView.setVisible(isAct);
+    if (t.dividerView) t.dividerView.setVisible(isAct && !state.overlay);
   }
   relayout(state);
-  if (extensions && !state.incognito) extensions.selectTab(state.tabs.get(id).view.webContents);
+  const selWc = state.tabs.get(id)?.view?.webContents;
+  if (extensions && !state.incognito && selWc && !selWc.isDestroyed()) {
+    try { extensions.selectTab(selWc); } catch {}
+  }
   state.ui.webContents.send('rave:tab-activated', { id });
   
   // Sincronizar estado de pantalla dividida a la UI
@@ -337,24 +520,24 @@ function selectTab(state, id) {
   state.ui.webContents.send('rave:tab-split-state', {
     id,
     isSplit: !!t.splitView,
-    activeSide: t.activeFocus || 'primary'
+    activeSide: t.activeFocus || 'primary',
+    primaryUrl: t.view.webContents.getURL(),
+    splitUrl: t.splitView ? t.splitView.webContents.getURL() : null
   });
 }
 
 function closeTab(state, id) {
   const t = state.tabs.get(id);
   if (!t) return;
-  state.win.contentView.removeChildView(t.view);
-  t.view.webContents.close();
-  if (t.splitView) {
-    state.win.contentView.removeChildView(t.splitView);
-    t.splitView.webContents.close();
-  }
-  if (t.dividerView) {
-    state.win.contentView.removeChildView(t.dividerView);
-    t.dividerView.webContents.close();
-  }
-  state.tabs.delete(id);
+  state.tabs.delete(id);   // primero, para evitar reentradas desde 'destroyed'
+  const dispose = (view) => {
+    if (!view) return;
+    try { state.win.contentView.removeChildView(view); } catch {}
+    try { if (!view.webContents.isDestroyed()) view.webContents.close(); } catch {}
+  };
+  dispose(t.view);
+  dispose(t.splitView);
+  dispose(t.dividerView);
   state.ui.webContents.send('rave:tab-closed', { id });
 }
 
@@ -421,15 +604,13 @@ function setupPaneListeners(state, tabId, side) {
   });
   
   const onNav = () => {
-    if (side === 'primary') {
-      t.url = wc.getURL();
-    } else {
-      t.splitUrl = wc.getURL();
-    }
+    const url = wc.getURL();
     const tab = state.tabs.get(tabId);
-    if (tab && tab.activeFocus === side) {
-      send({ url: wc.getURL(), ...navState() });
-    }
+    if (!tab) return;
+    if (side === 'primary') tab.url = url;
+    else tab.splitUrl = url;
+    // Solo actualizar la barra de direcciones si este lado tiene el foco
+    if (tab.activeFocus === side) send({ url, ...navState() });
     maybeYouTube(wc);
   };
   wc.on('did-navigate', onNav);
@@ -441,9 +622,14 @@ function setupPaneListeners(state, tabId, side) {
   });
   wc.on('context-menu', (_e, p) => {
     const tab = state.tabs.get(tabId);
-    if (tab && tab.activeFocus === side) state.ui.webContents.send('rave:context-menu', { id: tabId, p });
+    if (tab && tab.activeFocus === side) {
+      // Calcular el offset X real del panel dentro de la ventana
+      const view = (side === 'primary') ? tab.view : tab.splitView;
+      const panelOffsetX = view ? view.getBounds().x : 0;
+      state.ui.webContents.send('rave:context-menu', { id: tabId, p: { ...p, panelOffsetX } });
+    }
   });
-  wc.setWindowOpenHandler(({ url: u }) => { openTab(state, u); return { action: 'deny' }; });
+  wc.setWindowOpenHandler(makeWindowOpenHandler(state));
 
   wc.on('focus', () => {
     const tab = state.tabs.get(tabId);
@@ -518,7 +704,9 @@ function mergeTabs(state, targetId, sourceId, side) {
   state.ui.webContents.send('rave:tab-split-state', {
     id: targetId,
     isSplit: true,
-    activeSide: tA.activeFocus
+    activeSide: tA.activeFocus,
+    primaryUrl: tA.view.webContents.getURL(),
+    splitUrl: tA.splitView ? tA.splitView.webContents.getURL() : null
   });
 
   // Actualizar la interfaz con los datos del panel activo
@@ -586,7 +774,9 @@ function toggleSplitTab(state, tabId, newTabUrl, splitRatio, activeSide) {
   } else {
     // Abrir pantalla dividida
     const splitView = new WebContentsView({
-      webPreferences: state.incognito ? { partition: state.partition } : {}
+      webPreferences: state.incognito
+        ? { partition: state.partition, spellcheck: true, preload: path.join(__dirname, 'pip.js') }
+        : { spellcheck: true, preload: path.join(__dirname, 'pip.js') }
     });
     splitView.setBackgroundColor(state.incognito ? '#0d0d0f' : '#ffffff');
     state.win.contentView.addChildView(splitView, 0);
@@ -622,7 +812,9 @@ function toggleSplitTab(state, tabId, newTabUrl, splitRatio, activeSide) {
     state.ui.webContents.send('rave:tab-split-state', {
       id: tabId,
       isSplit: true,
-      activeSide: t.activeFocus
+      activeSide: t.activeFocus,
+      primaryUrl: t.view.webContents.getURL(),
+      splitUrl: t.splitView ? t.splitView.webContents.getURL() : null
     });
   }
 }
@@ -630,6 +822,7 @@ function toggleSplitTab(state, tabId, newTabUrl, splitRatio, activeSide) {
 function maybeYouTube(wc) {
   if (/(^|\.)youtube\.com|youtube-nocookie\.com/.test(wc.getURL()))
     wc.executeJavaScript(YT_ADSKIP, true).catch(() => {});
+  wc.insertCSS(COOKIE_CONSENT_CSS).catch(() => {});
 }
 
 // Detecta formularios con <input type="password"> y notifica la UI.
@@ -669,28 +862,164 @@ function listExtensions(ses) {
 }
 
 // ====== Descargas ======
+// Mueve/copia un archivo gestionando colisiones de nombre
+function moveFile(src, dest) {
+  try { fs.renameSync(src, dest); return dest; } catch {}
+  fs.copyFileSync(src, dest); try { fs.unlinkSync(src); } catch {}
+  return dest;
+}
+function uniqueDest(dir, name) {
+  let dest = path.join(dir, name);
+  if (!fs.existsSync(dest)) return dest;
+  const ext = path.extname(name), base = path.basename(name, ext);
+  dest = path.join(dir, `${base}-${Date.now()}${ext}`);
+  return dest;
+}
+
+const activeDownloads = new Map(); // id → DownloadItem
+
 function attachDownloads(ses) {
   if (ses.__raveDownloads) return;
   ses.__raveDownloads = true;
   ses.on('will-download', (_e, item) => {
-    const info = { name: item.getFilename(), total: item.getTotalBytes() };
+    // Interceptar PDFs y abrirlos en una nueva pestaña en lugar de descargarlos
+    const mime = item.getMimeType();
+    const url = item.getURL();
+    const isPDF = mime === 'application/pdf' || url.toLowerCase().split('?')[0].endsWith('.pdf');
+    if (isPDF) {
+      _e.preventDefault();
+      for (const s of states.values()) {
+        if (s.tabSession === ses || (ses === session.defaultSession && !s.incognito)) {
+          s.ui.webContents.send('rave:open-pdf', url);
+          break;
+        }
+      }
+      return;
+    }
+    const name = item.getFilename();
+    const total = item.getTotalBytes();
+    const defaultDest = uniqueDest(app.getPath('downloads'), name);
+
+    // Preguntar al usuario dónde guardar ANTES de descargar
+    const { dialog } = require('electron');
+    const chosen = dialog.showSaveDialogSync({
+      title: 'Guardar archivo',
+      defaultPath: defaultDest,
+      buttonLabel: 'Guardar'
+    });
+
+    if (!chosen) {
+      // Usuario canceló → cancelar la descarga
+      item.cancel();
+      return;
+    }
+
+    item.setSavePath(chosen);
+
+    const id = `dl-${Date.now()}`;
+    const info = { id, name, total, destPath: chosen };
     const bcast = (ch, extra) => { for (const s of states.values()) s.ui.webContents.send(ch, { ...info, ...extra }); };
+
+    activeDownloads.set(id, item);
     bcast('rave:download-started');
-    item.once('done', (_ev, st) => bcast('rave:download-done', { state: st }));
+
+    item.on('updated', (_ev, st) => {
+      if (st === 'progressing') {
+        bcast('rave:download-progress', { received: item.getReceivedBytes(), paused: false });
+      } else if (st === 'interrupted') {
+        bcast('rave:download-progress', { received: item.getReceivedBytes(), paused: true });
+      }
+    });
+
+    item.once('done', (_ev, st) => {
+      activeDownloads.delete(id);
+      bcast('rave:download-done', { state: st, destPath: st === 'completed' ? chosen : null });
+    });
+  });
+}
+
+// Los IPC de descarga se registran una sola vez al arrancar (no dentro de attachDownloads)
+function registerDownloadIPC() {
+  ipcMain.handle('rave:download-open', async (_e, { destPath }) => {
+    const err = await require('electron').shell.openPath(destPath);
+    return { ok: !err, err };
+  });
+
+  ipcMain.handle('rave:download-save', async (_e, { destPath, name }) => {
+    const { dialog } = require('electron');
+    const dest = dialog.showSaveDialogSync({ defaultPath: path.join(app.getPath('downloads'), name) });
+    if (!dest) return { cancelled: true };
+    if (dest !== destPath) moveFile(destPath, dest);
+    return { saved: dest };
+  });
+
+  ipcMain.on('rave:download-pause', (_e, { id }) => {
+    const item = activeDownloads.get(id);
+    if (item && !item.isPaused()) item.pause();
+  });
+
+  ipcMain.on('rave:download-resume', (_e, { id }) => {
+    const item = activeDownloads.get(id);
+    if (item && item.isPaused() && item.canResume()) item.resume();
+  });
+
+  ipcMain.on('rave:download-cancel', (_e, { id }) => {
+    const item = activeDownloads.get(id);
+    if (item) { item.cancel(); activeDownloads.delete(id); }
+  });
+
+  ipcMain.on('rave:download-url', (_e, url) => {
+    let tabSes = null;
+    for (const s of states.values()) {
+      const t = s.tabs.get(s.activeId);
+      if (t && !t.view.webContents.isDestroyed()) { tabSes = t.view.webContents.session; break; }
+    }
+    (tabSes || require('electron').session.defaultSession).downloadURL(url);
+  });
+
+  ipcMain.handle('rave:download-delete', async (_e, { destPath }) => {
+    try { if (destPath && fs.existsSync(destPath)) fs.unlinkSync(destPath); return { ok: true }; }
+    catch (e) { return { ok: false, err: e.message }; }
+  });
+
+  ipcMain.handle('rave:download-show', async (_e, { destPath }) => {
+    require('electron').shell.showItemInFolder(destPath);
+    return { ok: true };
   });
 }
 
 // ====== Arranque ======
+registerDownloadIPC();
 Menu.setApplicationMenu(null);
 process.on('unhandledRejection', (err) => {
   const m = (err && err.message) || String(err);
   if (m.includes('Script failed to execute') || m.includes('disposed')) return;
   console.error('[Rave] unhandledRejection:', m);
 });
+// Red de seguridad: un error puntual (p. ej. webContents destruido durante un
+// login) no debe cerrar todo el navegador. Lo registramos y seguimos.
+process.on('uncaughtException', (err) => {
+  console.error('[Rave] uncaughtException:', (err && err.stack) || err);
+});
 
 // ====== Permisos por sitio ======
-const permDecisions = new Map();   // `${origin}|${permission}` -> bool
-const pendingPerms = new Map();    // id -> { callback, key }
+// Estructura: { [origin]: { [permission]: 'allow'|'block' } }
+const permsFile = path.join(app.getPath('userData'), 'site-permissions.json');
+function loadPerms() {
+  try { return JSON.parse(fs.readFileSync(permsFile, 'utf8')); } catch { return {}; }
+}
+function savePerms(data) {
+  try { fs.writeFileSync(permsFile, JSON.stringify(data, null, 2)); } catch { }
+}
+let sitePerms = loadPerms();   // persistido en disco
+
+// Popula permDecisions desde el archivo al arrancar
+const permDecisions = new Map();
+for (const [origin, perms] of Object.entries(sitePerms))
+  for (const [perm, val] of Object.entries(perms))
+    permDecisions.set(origin + '|' + perm, val === 'allow');
+
+const pendingPerms = new Map();    // id -> { callback, key, origin, permission }
 let permSeq = 1;
 function findStateByWC(wc) {
   for (const s of states.values())
@@ -698,6 +1027,21 @@ function findStateByWC(wc) {
       if (t.view?.webContents === wc || t.splitView?.webContents === wc) return s;
   return null;
 }
+function setPerm(origin, permission, allow) {
+  permDecisions.set(origin + '|' + permission, allow);
+  if (!sitePerms[origin]) sitePerms[origin] = {};
+  sitePerms[origin][permission] = allow ? 'allow' : 'block';
+  savePerms(sitePerms);
+}
+function deletePerm(origin, permission) {
+  permDecisions.delete(origin + '|' + permission);
+  if (sitePerms[origin]) {
+    delete sitePerms[origin][permission];
+    if (!Object.keys(sitePerms[origin]).length) delete sitePerms[origin];
+  }
+  savePerms(sitePerms);
+}
+
 function installPermissions(ses) {
   if (ses.__ravePerms) return; ses.__ravePerms = true;
   ses.setPermissionRequestHandler((wc, permission, callback, details) => {
@@ -709,8 +1053,12 @@ function installPermissions(ses) {
     const state = findStateByWC(wc);
     if (!state) return callback(false);
     const id = permSeq++;
-    pendingPerms.set(id, { callback, key });
+    pendingPerms.set(id, { callback, key, origin, permission });
     state.ui.webContents.send('rave:permission-request', { id, permission, origin });
+  });
+  ses.setPermissionCheckHandler((wc, permission, requestingOrigin) => {
+    const key = (requestingOrigin || (wc ? wc.getURL() : '')) + '|' + permission;
+    return permDecisions.has(key) ? permDecisions.get(key) : true;
   });
 }
 
@@ -751,6 +1099,9 @@ app.whenReady().then(async () => {
   installPrivacy(session.defaultSession);
   installPermissions(session.defaultSession);
   installCerts(session.defaultSession);
+  installShieldsOnSession(session.defaultSession);
+  registerShieldsIPC();
+  registerHistoryIPC();
   try { session.defaultSession.setSpellCheckerLanguages(['es', 'en-US']); } catch {}
 
   // Sistema de extensiones: APIs chrome.*, acciones de barra y popups.
@@ -777,7 +1128,10 @@ app.whenReady().then(async () => {
   });
 
   await setupExtensions(session.defaultSession);
-  createWindow();
+  const startState = createWindow();
+  // Si el SO abrió Rave con un enlace (navegador predeterminado), lo cargamos.
+  const u = initialUrl();
+  if (u && startState) openTab(startState, u);
   setupUpdater(broadcast);   // comprueba actualizaciones OTA (solo app empaquetada)
   app.on('activate', () => { if (states.size === 0) createWindow(); });
 });
@@ -811,6 +1165,8 @@ const st = (e) => {
 };
 
 ipcMain.handle('rave:get-blocked-count', () => global.__raveBlockedCount || 0);
+ipcMain.handle('rave:is-default-browser', () => isDefaultBrowser());
+ipcMain.handle('rave:set-default-browser', () => setDefaultBrowser());
 ipcMain.on('rave:new-incognito', () => createWindow(true));
 ipcMain.handle('rave:list-extensions', (e) => listExtensions(st(e)?.tabSession || session.defaultSession));
 ipcMain.handle('rave:uninstall-extension', async (e, id) => {
@@ -824,15 +1180,35 @@ ipcMain.handle('rave:uninstall-extension', async (e, id) => {
   }
 });
 ipcMain.on('rave:open-extensions-folder', () => shell.openPath(EXT_DIR()));
-ipcMain.on('rave:set-privacy', (_e, p) => { privacy = { ...privacy, ...p }; applyTrackerLevel(); });
+ipcMain.on('rave:set-privacy', (_e, p) => {
+  privacy = { ...privacy, ...p };
+  setGlobalHttpsOnly(privacy.httpsOnly || privacy.level === 'strict');
+  applyTrackerLevel();
+});
 ipcMain.on('rave:set-sleep', (_e, minutes) => { sleepMs = minutes > 0 ? minutes * 60000 : 0; });
 
 // Respuesta del usuario al diálogo de permiso
 ipcMain.on('rave:permission-response', (_e, { id, allow, remember }) => {
   const p = pendingPerms.get(id); if (!p) return;
   pendingPerms.delete(id);
-  if (remember) permDecisions.set(p.key, allow);
+  if (remember) setPerm(p.origin, p.permission, allow);
+  else permDecisions.set(p.key, allow);
   try { p.callback(allow); } catch {}
+});
+
+// CRUD de permisos por sitio
+ipcMain.handle('rave:get-site-perms', (_e, origin) => sitePerms[origin] || {});
+ipcMain.handle('rave:get-all-perms', () => sitePerms);
+ipcMain.handle('rave:set-site-perm', (_e, { origin, permission, value }) => {
+  if (value === 'default') deletePerm(origin, permission);
+  else setPerm(origin, permission, value === 'allow');
+  return true;
+});
+ipcMain.handle('rave:delete-site-perms', (_e, origin) => {
+  for (const perm of Object.keys(sitePerms[origin] || {})) permDecisions.delete(origin + '|' + perm);
+  delete sitePerms[origin];
+  savePerms(sitePerms);
+  return true;
 });
 
 // Imprimir / Guardar como PDF
@@ -913,6 +1289,41 @@ ipcMain.handle('rave:clear-site-cookies', async (e, url) => {
   } catch { return false; }
 });
 
+// Info de seguridad del sitio activo
+ipcMain.handle('rave:get-site-info', async (e) => {
+  const s = st(e);
+  if (!s || !s.activeId) return null;
+  const tab = s.tabs.get(s.activeId);
+  if (!tab) return null;
+  const targetView = (tab.splitView && tab.activeFocus === 'secondary') ? tab.splitView : tab.view;
+  const wc = targetView.webContents;
+  const url = wc.getURL();
+  let cert = null;
+  try {
+    const info = wc.getProcessId ? wc : null;
+    const certData = wc.getCertificate ? wc.getCertificate() : null;
+    if (certData) {
+      cert = {
+        issuer: certData.issuerName || certData.issuer?.commonName || '',
+        subject: certData.subjectName || certData.subject?.commonName || '',
+        validStart: certData.validStart,
+        validExpiry: certData.validExpiry,
+      };
+    }
+  } catch { }
+  let cookieCount = 0;
+  try {
+    const ses = s.tabSession || session.defaultSession;
+    const cookies = await ses.cookies.get({ url });
+    cookieCount = cookies.length;
+  } catch { }
+  const blockedCount = global.__raveBlockedCount || 0;
+  let origin = ''; try { origin = new URL(url).origin; } catch {}
+  const perms = sitePerms[origin] || {};
+  const shields = getShields(origin);
+  return { url, cert, cookieCount, blockedCount, origin, perms, shields };
+});
+
 // Captura de pantalla
 ipcMain.handle('rave:capture-page', async (e) => {
   const s = st(e);
@@ -946,18 +1357,54 @@ const READER_CSS = `
 `;
 ipcMain.handle('rave:inject-reader', async (e) => {
   const s = st(e);
-  if (!s || !s.activeId) return false;
+  if (!s || !s.activeId) return { ok: false };
   const tab = s.tabs.get(s.activeId);
-  if (!tab) return false;
+  if (!tab) return { ok: false };
   try {
     const targetView = (tab.splitView && tab.activeFocus === 'secondary') ? tab.splitView : tab.view;
-    await targetView.webContents.insertCSS(READER_CSS);
-    return true;
-  } catch { return false; }
+    const wc = targetView.webContents;
+    if (tab._readerCssKey) {
+      await wc.removeInsertedCSS(tab._readerCssKey);
+      tab._readerCssKey = null;
+      return { ok: true, active: false };
+    } else {
+      tab._readerCssKey = await wc.insertCSS(READER_CSS);
+      return { ok: true, active: true };
+    }
+  } catch { return { ok: false }; }
 });
 
 // Pestañas
 ipcMain.handle('rave:tab-create', (e, url) => { const s = st(e); return s ? openTab(s, url).id : null; });
+// Fijar / desfijar pestaña
+ipcMain.on('rave:tab-pin', (_e, { id }) => {
+  const s = st(_e); if (!s) return;
+  const tab = s.tabs.get(id); if (!tab) return;
+  tab.pinned = !tab.pinned;
+  s.ui.webContents.send('rave:tab-updated', { id, pinned: tab.pinned });
+});
+
+// Motores de busqueda
+ipcMain.handle('rave:get-engines', () => loadEngines());
+ipcMain.handle('rave:set-default-engine', (_e, id) => {
+  const engines = loadEngines();
+  engines.forEach(e => e.default = e.id === id);
+  saveEngines(engines);
+  return engines;
+});
+ipcMain.handle('rave:add-engine', (_e, { name, url }) => {
+  const engines = loadEngines();
+  engines.push({ id: Date.now().toString(), name, url, default: false });
+  saveEngines(engines);
+  return engines;
+});
+ipcMain.handle('rave:delete-engine', (_e, id) => {
+  let engines = loadEngines().filter(e => e.id !== id);
+  if (!engines.find(e => e.default) && engines.length) engines[0].default = true;
+  saveEngines(engines);
+  return engines;
+});
+
 ipcMain.on('rave:tab-select', (e, id) => { const s = st(e); if (s) selectTab(s, id); });
 ipcMain.on('rave:tab-close', (e, id) => { const s = st(e); if (s) closeTab(s, id); });
 ipcMain.on('rave:tab-split-toggle', (e, { id, newTabUrl, splitRatio, activeSide }) => { const s = st(e); if (s) toggleSplitTab(s, id, newTabUrl, splitRatio, activeSide); });
@@ -1002,7 +1449,7 @@ ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
     case 'forward': nh ? nh.goForward() : wc.goForward(); break;
     case 'reload': wc.reload(); break;
     case 'stop': wc.stop(); break;
-    case 'zoom': wc.setZoomFactor(arg); break;
+    case 'zoom': wc.setZoomFactor(arg); try { saveZoom(new URL(wc.getURL()).origin, arg); } catch {} break;
     case 'find': wc.findInPage(arg.text, arg.opts); break;
     case 'stopFind': wc.stopFindInPage('clearSelection'); break;
     case 'inspect': wc.inspectElement(arg.x, arg.y); break;
@@ -1020,6 +1467,110 @@ ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
   }
 });
 
+// Helper: petición HTTPS con Node.js nativo (sin CORS, sin CSP)
+function httpsGet(url) {
+  return new Promise((resolve, reject) => {
+    require('https').get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } }, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
+}
+
+async function googleTranslate(text, tl) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(tl)}&dt=t&q=${encodeURIComponent(text)}`;
+  const raw = await httpsGet(url);
+  const data = JSON.parse(raw);
+  // data[0] = array de segmentos [[traducido, original], ...]
+  const translated = data[0].filter(Boolean).map((c) => c[0] || '').join('');
+  const detectedLang = (data[2] && typeof data[2] === 'string') ? data[2] : 'auto';
+  return { translated, detectedLang };
+}
+
+// Traducción de texto seleccionado
+ipcMain.handle('rave:translate', async (_e, { text, tl }) => {
+  try {
+    const result = await googleTranslate(text, tl);
+    return { ok: true, ...result };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// Traducción de página completa: extrae textos desde main, traduce allí, reinyecta
+ipcMain.handle('rave:translate-page', async (e, { tl }) => {
+  const s = st(e); if (!s) return { ok: false };
+  const t = s.tabs.get(s.activeId); if (!t) return { ok: false };
+  const wc = (t.activeFocus === 'secondary' && t.splitView) ? t.splitView.webContents : t.view.webContents;
+
+  try {
+    // 1. Extraer textos originales y guardar backup en la propia página
+    const extractScript = `(function() {
+      const SKIP = new Set(['SCRIPT','STYLE','NOSCRIPT','TEXTAREA','INPUT','SELECT','CODE','PRE','KBD','SAMP']);
+      const results = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let i = 0;
+      while (walker.nextNode()) {
+        const n = walker.currentNode;
+        const text = n.textContent.trim();
+        if (!text || text.length < 2) continue;
+        let skip = false, p = n.parentElement;
+        while (p) { if (SKIP.has(p.tagName)) { skip = true; break; } p = p.parentElement; }
+        if (!skip) {
+          n.__raveIdx = i;
+          if (n.__raveOrig === undefined) n.__raveOrig = n.textContent; // guardar original solo una vez
+          results.push({ idx: i, text: n.__raveOrig }); // siempre traducir desde el original
+          i++;
+        }
+      }
+      return JSON.stringify(results);
+    })()`;
+
+    const extracted = JSON.parse(await wc.executeJavaScript(extractScript));
+    if (!extracted.length) return { ok: false, error: 'Sin texto' };
+
+    // 2. Traducir en lotes desde el proceso principal (sin fetch en la página)
+    const BATCH = 50;
+    const translations = new Array(extracted.length);
+    for (let i = 0; i < extracted.length; i += BATCH) {
+      const batch = extracted.slice(i, i + BATCH);
+      const SEP = '\n⁣\n';
+      const combined = batch.map((x) => x.text).join(SEP);
+      try {
+        const { translated } = await googleTranslate(combined, tl);
+        const parts = translated.split(/\n[^\S\n]*⁣[^\S\n]*\n/);
+        batch.forEach((item, j) => { translations[i + j] = { idx: item.idx, text: (parts[j] || item.text).trim() }; });
+      } catch {
+        batch.forEach((item, j) => { translations[i + j] = { idx: item.idx, text: item.text }; });
+      }
+    }
+
+    // 3. Reinyectar por índice
+    const map = Object.fromEntries(translations.filter(Boolean).map((x) => [x.idx, x.text]));
+    await wc.executeJavaScript(`(function(map){
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while(walker.nextNode()){const n=walker.currentNode;if(n.__raveIdx!==undefined&&map[n.__raveIdx]!==undefined)n.textContent=map[n.__raveIdx];}
+    })(${JSON.stringify(map)})`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('rave:restore-page', async (e) => {
+  const s = st(e); if (!s) return { ok: false };
+  const t = s.tabs.get(s.activeId); if (!t) return { ok: false };
+  const wc = (t.activeFocus === 'secondary' && t.splitView) ? t.splitView.webContents : t.view.webContents;
+  try {
+    await wc.executeJavaScript(`(function(){
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while(walker.nextNode()){const n=walker.currentNode;if(n.__raveOrig!==undefined){n.textContent=n.__raveOrig;delete n.__raveOrig;delete n.__raveIdx;}}
+    })()`);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // Disposición
 ipcMain.on('rave:set-layout', (e, { chromeH }) => { const s = st(e); if (s) { s.chromeH = chromeH; relayout(s); } });
 ipcMain.on('rave:set-overlay', (e, on) => { const s = st(e); if (s) { s.overlay = on; relayout(s); } });
@@ -1027,7 +1578,87 @@ ipcMain.on('rave:set-overlay', (e, on) => { const s = st(e); if (s) { s.overlay 
 // Portapapeles (texto) lo maneja el preload con clipboard.
 
 // Controles de ventana
+ipcMain.on('rave:pip', () => {
+  const state = focusedState(); if (!state) return;
+  const tab = state.tabs.get(state.activeId); if (!tab) return;
+  const wc = (tab.activeFocus === 'secondary' && tab.splitView) ? tab.splitView.webContents : tab.view.webContents;
+  wc.executeJavaScript(`
+    (function(){
+      const v = document.querySelector('video:not([disablepictureinpicture])');
+      if(v) v.requestPictureInPicture().catch(()=>{});
+    })()
+  `).catch(() => {});
+});
+
+// ====== Vista previa de pestaña ======
+ipcMain.handle('rave:tab-preview', async (_e, id) => {
+  for (const s of states.values()) {
+    const tab = s.tabs.get(id);
+    if (tab?.view) {
+      try {
+        const img = await tab.view.webContents.capturePage();
+        const resized = img.resize({ width: 280, height: 158 });
+        return resized.toDataURL();
+      } catch { return null; }
+    }
+  }
+  return null;
+});
+
+// ====== Controles de medios ======
+ipcMain.on('rave:media-control', (_e, action) => {
+  const state = focusedState(); if (!state) return;
+  const tab = state.tabs.get(state.activeId); if (!tab) return;
+  const script = action === 'play'  ? `document.querySelector('video,audio')?.play()`
+               : action === 'pause' ? `document.querySelector('video,audio')?.pause()`
+               : action === 'prev'  ? `window.mediaSession?.callActionHandler?.('previoustrack', null)`
+               : action === 'next'  ? `window.mediaSession?.callActionHandler?.('nexttrack', null)`
+               : null;
+  if (script) tab.view.webContents.executeJavaScript(script).catch(() => {});
+});
+
+ipcMain.handle('rave:media-info', async (_e) => {
+  const state = focusedState(); if (!state) return null;
+  const tab = state.tabs.get(state.activeId); if (!tab) return null;
+  try {
+    return await tab.view.webContents.executeJavaScript(`
+      ({
+        playing: !!(document.querySelector('video,audio') && !document.querySelector('video,audio').paused),
+        title: navigator.mediaSession?.metadata?.title || document.title,
+        artist: navigator.mediaSession?.metadata?.artist || '',
+        artwork: navigator.mediaSession?.metadata?.artwork?.[0]?.src || ''
+      })
+    `);
+  } catch { return null; }
+});
+
 ipcMain.on('rave:win-minimize', (e) => st(e)?.win.minimize());
 ipcMain.on('rave:win-maximize', (e) => { const w = st(e)?.win; if (!w) return; w.isMaximized() ? w.unmaximize() : w.maximize(); });
 ipcMain.on('rave:win-close', (e) => st(e)?.win.close());
 ipcMain.handle('rave:win-is-maximized', (e) => st(e)?.win.isMaximized() ?? false);
+
+// Generador de QR
+ipcMain.handle('rave:qr-generate', async (_e, url) => {
+  try {
+    const QRCode = require('qrcode');
+    return await QRCode.toDataURL(url, { width: 200, margin: 2, color: { dark: '#000000', light: '#ffffff' } });
+  } catch { return null; }
+});
+
+// Verificar contraseña comprometida (Have I Been Pwned, k-anonymity)
+async function checkPasswordPwned(password) {
+  const crypto = require('crypto');
+  const hash = crypto.createHash('sha1').update(password).digest('hex').toUpperCase();
+  const prefix = hash.slice(0, 5);
+  const suffix = hash.slice(5);
+  try {
+    const res = await net.fetch(`https://api.pwnedpasswords.com/range/${prefix}`, {
+      headers: { 'Add-Padding': 'true' }
+    });
+    if (!res.ok) return 0;
+    const text = await res.text();
+    const line = text.split('\n').find(l => l.startsWith(suffix));
+    return line ? parseInt(line.split(':')[1]) : 0;
+  } catch { return 0; }
+}
+ipcMain.handle('rave:check-pwned', async (_e, password) => checkPasswordPwned(password));

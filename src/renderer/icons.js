@@ -51,5 +51,15 @@
     import_:  s('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'),
     palette: s('<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>'),
     split:   s('<path d="M12 3v18M3 3h18v18H3z"/>'),
+    pause:   s('<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>'),
+    check:   s('<polyline points="20 6 9 17 4 12"/>'),
+    folder:  s('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'),
+    externalLink: s('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>'),
+    shield_on: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" fill="color-mix(in srgb, currentColor 12%, transparent)"/><polyline points="9 12 11 14 15 10"/></svg>`,
+    shield_off: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>`,
+    js: s('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7.5 15.5c.5.5 1.5.5 1.5-.5v-5"/><path d="M13 9v5a1.5 1.5 0 0 0 3 0"/>'),
+    fingerprint: s('<path d="M12 2C6.48 2 2 6.48 2 12"/><path d="M12 6c-3.31 0-6 2.69-6 6"/><path d="M12 10c-1.1 0-2 .9-2 2"/><path d="M12 22c5.52 0 10-4.48 10-10"/><path d="M12 18c3.31 0 6-2.69 6-6"/><path d="M12 14c1.1 0 2-.9 2-2"/>'),
+    https: s('<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><polyline points="10 16.5 11.5 18 14 15.5"/>'),
+    history: s('<path d="M13 3a9 9 0 1 0 9 9h-2a7 7 0 1 1-7-7V3z"/><path d="M13 3v9l4 4"/>'),
   };
 })();

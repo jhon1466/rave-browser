@@ -10,6 +10,8 @@ Dos plataformas en este repositorio:
 | **Escritorio** (Windows/Mac/Linux) | Electron + WebContentsView | raíz / `src/` |
 | **Android** | Kotlin + Jetpack Compose + WebView | `android/` |
 
+La versión Android incluye la mayoría de funciones del escritorio (pestañas, incógnito, marcadores, historial, ajustes, descargas, adblock, contraseñas, etc.). Ver [android/README.md](android/README.md).
+
 ## Funciones
 - 🎨 Estética monocromática (modo claro/oscuro automático)
 - 📑 Pestañas (reordenables en escritorio), incógnito

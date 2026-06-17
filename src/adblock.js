@@ -13,6 +13,7 @@ const fs = require('fs');
 const { app, ipcMain } = require('electron');
 const { ElectronBlocker } = require('@ghostery/adblocker-electron');
 const fetch = require('cross-fetch');
+const { shieldsAllowSet, shieldsRequestFilter } = require('./shields');
 
 // Interceptar ipcMain.handle para evitar errores al activar el adblocker
 // en múltiples sesiones (como el modo incógnito).
@@ -82,13 +83,43 @@ async function setupAdblock(ses) {
   // Guarda el motor para reusarlo en otras sesiones (p. ej. incógnito).
   global.__raveBlocker = blocker;
 
-  // Contador para el "escudo" de la barra.
-  blocker.on('request-blocked', () => { global.__raveBlockedCount++; });
-  blocker.on('request-redirected', () => { global.__raveBlockedCount++; });
+  // Contador para el "escudo" de la barra (solo si el sitio no está en la allowlist).
+  blocker.on('request-blocked', (request) => {
+    const origin = request.initiator || '';
+    if (!shieldsAllowSet.has(origin)) global.__raveBlockedCount++;
+  });
+  blocker.on('request-redirected', (request) => {
+    const origin = request.initiator || '';
+    if (!shieldsAllowSet.has(origin)) global.__raveBlockedCount++;
+  });
 
   // Activa bloqueo de red + cosmetic filtering sobre esta sesión.
+  // enableBlockingInSession instala onBeforeRequest internamente.
+  // Luego lo reemplazamos con un wrapper que respeta shieldsAllowSet.
   blocker.enableBlockingInSession(ses);
   ses.__raveBlockEnabled = true;
+
+  // Reemplazar el handler del blocker con un handler unificado que:
+  // 1. Aplica shields primero (HTTPS upgrade, JS blocking)
+  // 2. Si el origen tiene adBlock='allow', deja pasar
+  // 3. Si no, consulta el engine del blocker
+  ses.webRequest.onBeforeRequest((details, cb) => {
+    shieldsRequestFilter(details, cb, () => {
+      const initiator = details.initiator || '';
+      if (initiator && shieldsAllowSet.has(initiator)) return cb({ cancel: false });
+
+      try {
+        const { makeRequest } = require('@ghostery/adblocker-electron');
+        const req = makeRequest(details);
+        const { match, redirect } = blocker.match(req);
+        if (redirect) return cb({ redirectURL: redirect.dataUrl });
+        if (match) return cb({ cancel: true });
+      } catch {
+        // Si la API interna cambia, dejar pasar (fail-open)
+      }
+      cb({ cancel: false });
+    });
+  });
 
   console.log('[Rave] uBlock activado (listas completas uBO + EasyList, scriptlets YouTube).');
   return blocker;

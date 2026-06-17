@@ -10,61 +10,101 @@ Navegador Rave en **Kotlin + Jetpack Compose**, usando el **WebView** del sistem
 
 ## Cómo abrirlo y ejecutarlo
 1. Abre **Android Studio** → *Open* → selecciona la carpeta `android/`.
-2. Android Studio descargará Gradle 8.9 y las dependencias, y generará el
-   `gradle wrapper` automáticamente (la primera vez tarda unos minutos).
+2. Android Studio descargará Gradle y las dependencias (la primera vez tarda unos minutos).
 3. Pulsa **Run ▶** con un emulador o teléfono conectado.
 
-> Desde terminal (si tienes el SDK configurado y el wrapper generado):
-> `./gradlew :app:installDebug`
+## Funciones (paridad con escritorio)
 
-## Funciones de esta v1
-- Pestañas múltiples (con barra de pestañas y botón +).
-- Barra de direcciones con búsqueda (DuckDuckGo) o navegación directa.
-- Atrás / recargar / parar, barra de progreso, botón de inicio.
-- Página de inicio propia (`assets/newtab.html`) con la marca Rave.
-- **Bloqueo de anuncios** por lista de dominios (`assets/adblock_hosts.txt`),
-  ampliada al arrancar descargando EasyList/EasyPrivacy. Activable/desactivable.
-- Marcadores e historial (persistidos en `SharedPreferences`).
-- Pestañas de **incógnito** (no guardan historial).
-- Tema claro/oscuro automático según el sistema.
-- **Actualizaciones OTA**: comprueba al arrancar (y desde el menú) un manifiesto
-  JSON en tu servidor; si hay versión nueva, descarga el APK y lanza el instalador.
+### Pestañas y navegación
+- Pestañas múltiples con fijar, duplicar, reabrir cerrada y cerrar otras
+- Incógnito (sin historial; cookies de sesión se limpian al cerrar)
+- Atrás / adelante / recargar / parar, barra de progreso
+- Restauración de sesión al reiniciar la app
+- Enlaces externos (`http`/`https`) abren en Rave
+- Pop-ups (`target="_blank"`) abren en nueva pestaña
+- Subida de archivos (`<input type="file">`)
+
+### Barra de direcciones
+- Omnibox con sugerencias (marcadores + historial)
+- 5 motores de búsqueda (DuckDuckGo, Google, Bing, Brave, Ecosia)
+- Indicador HTTPS, botón de marcador
+
+### Página de inicio
+- Reloj, fecha, accesos rápidos desde historial
+- Tema sincronizado con ajustes
+
+### Marcadores e historial
+- Añadir/quitar, panel con eliminar individual
+- Historial (2000 entradas), borrar todo o por item
+- Barra de marcadores opcional
+- Exportar/importar JSON
+
+### Privacidad y bloqueo
+- Bloqueo de anuncios por dominios (EasyList + EasyPrivacy)
+- Contador en escudo de la barra
+- Protección de rastreo: desactivada / estándar / estricta (DNT + Sec-GPC)
+- Modo solo HTTPS
+- Borrar datos al salir
+- Panel de cookies por sitio
+
+### Herramientas de página
+- Buscar en la página
+- Modo lectura
+- Captura de pantalla
+- Imprimir
+- Zoom +/−/100%
+- Compartir enlace
+- Sitio de escritorio (User-Agent)
+
+### Datos personales
+- Gestor de contraseñas cifrado (AES-GCM)
+- Notas rápidas
+- Sesiones guardadas (snapshots de pestañas)
+
+### Descargas
+- Gestor de descargas web (DownloadManager del sistema)
+- Panel con historial de descargas
+
+### Ajustes
+- Motor de búsqueda, homepage, tema (sistema/claro/oscuro/Orange Eclipse)
+- **Navegador predeterminado** — botón en ajustes para abrir el selector del sistema
+- Barra de marcadores, animaciones, contraseñas, HTTPS-only, adblock
+- Exportar / importar / borrar todos los datos
+
+### Primera ejecución
+- Diálogo de bienvenida con opción de establecer Rave como navegador predeterminado
+
+### Actualizaciones OTA
+- Comprueba al arrancar y desde el menú un manifiesto JSON en tu servidor
 
 ## Configurar actualizaciones OTA
-1. Edita `MANIFEST_URL` en `browser/Updater.kt` con la URL de tu manifiesto.
-2. Sube a tu servidor un `latest.json`:
-   ```json
-   {
-     "versionCode": 2,
-     "versionName": "0.2.0",
-     "apkUrl": "https://TU-SERVIDOR.com/rave/android/rave-0.2.0.apk",
-     "notes": "Novedades de esta versión"
-   }
-   ```
-3. Sube también el APK firmado a esa `apkUrl`. Cuando subas `versionCode` mayor
-   que el instalado, los usuarios recibirán el aviso de actualización.
+1. Edita `MANIFEST_URL` en `browser/Updater.kt`.
+2. Sube un `latest.json` con `versionCode`, `versionName`, `apkUrl` y `notes`.
+3. Sube el APK firmado a `apkUrl`.
 
-## Limitaciones (propias de Android WebView)
-- **Sin extensiones de Chrome**: el WebView de Android no las soporta. Eso solo
-  es posible con un fork completo de Chromium (Kiwi/Brave) o con GeckoView.
-- El bloqueo de anuncios en YouTube es limitado (no hay inyección de scriptlets
-  como en escritorio). El bloqueo por red sí funciona.
-- Incógnito comparte el almacén de cookies global del WebView (aproximación).
+## Limitaciones (propias de WebView)
+- **Sin extensiones de Chrome** — requiere un fork de Chromium (Kiwi/Brave) o GeckoView
+- **Sin pantalla dividida** — feature exclusiva del escritorio (Electron)
+- **Sin suspensión de pestañas** — no aplica igual en móvil
+- Bloqueo de anuncios en YouTube es limitado (sin scriptlets como en escritorio)
+- Incógnito no aísla cookies al 100% entre pestañas normales e incógnito
 
 ## Estructura
 ```
-android/
-├─ app/
-│  ├─ src/main/
-│  │  ├─ AndroidManifest.xml
-│  │  ├─ assets/            newtab.html, adblock_hosts.txt
-│  │  ├─ res/               temas, icono
-│  │  └─ java/com/rave/browser/
-│  │     ├─ MainActivity.kt        UI completa (Compose) + gestión de pestañas
-│  │     ├─ browser/AdBlocker.kt   intercepción de peticiones + listas
-│  │     ├─ browser/Prefs.kt       marcadores e historial
-│  │     └─ ui/theme/Theme.kt      paleta monocromática
-│  └─ build.gradle.kts
-├─ build.gradle.kts
-└─ settings.gradle.kts
+android/app/src/main/java/com/rave/browser/
+├── MainActivity.kt           UI principal + menú completo
+├── browser/
+│   ├── AdBlocker.kt          bloqueo por dominios
+│   ├── DownloadHelper.kt     descargas web
+│   ├── Prefs.kt              marcadores, historial, sesiones, etc.
+│   ├── ReaderMode.kt         inyección CSS lectura
+│   ├── SearchUtils.kt        URL, motores, HTTPS
+│   ├── SecureStore.kt        contraseñas cifradas
+│   ├── Settings.kt           ajustes persistentes
+│   ├── TabModel.kt           estado de pestaña
+│   ├── Updater.kt            OTA APK
+│   └── WebViewFactory.kt     creación WebView + handlers
+└── ui/
+    ├── BrowserPanels.kt      diálogos y paneles
+    └── theme/Theme.kt        paleta monocromática + eclipse
 ```
