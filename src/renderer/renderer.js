@@ -99,7 +99,7 @@ let winW = window.innerWidth, winH = window.innerHeight;
 window.rave.onViewSize(({ w, h }) => { winW = w; winH = h; });
 
 // ===== Comandos hacia el proceso principal =====
-function createTab(url) { window.rave.tabCreate(url || newTabURL()); }
+function createTab(url) { return window.rave.tabCreate(url || newTabURL()); }
 function act(action, arg) { if (activeId != null) window.rave.tabAction(activeId, action, arg); }
 
 // ===== Eventos desde el proceso principal =====
@@ -226,7 +226,20 @@ function recordHistory(t) {
 function saveSession() {
   if (INCOGNITO) return;
   const order = [...$tabs.querySelectorAll('.tab')].map((e) => tabs.get(+e.dataset.id)).filter(Boolean);
-  store.set('session', order.filter((t) => !isInternal(t.url)).map((t) => t.url));
+  const sessionData = order.map((t) => {
+    const isSplit = !!t.isSplit;
+    if (!isSplit && isInternal(t.url)) {
+      return null;
+    }
+    return {
+      url: t.primaryUrl || t.url || '',
+      isSplit: isSplit,
+      splitUrl: t.splitUrl || '',
+      splitRatio: t.splitRatio || 0.5,
+      activeSide: t.activeSide || 'primary'
+    };
+  }).filter(Boolean);
+  store.set('session', sessionData);
 }
 
 // ===== Marcadores =====
@@ -1035,8 +1048,21 @@ measureLayout();
 // Iconos en botones del menú (recargamos tras crear el HTML)
 document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = ICONS[el.dataset.icon] || ''; });
 const saved = INCOGNITO ? [] : store.get('session', []);
-if (saved.length) saved.forEach((u) => createTab(u));
-else createTab();
+if (saved.length) {
+  saved.forEach((item) => {
+    if (typeof item === 'string') {
+      createTab(item);
+    } else if (item && typeof item === 'object') {
+      createTab(item.url).then((id) => {
+        if (id && item.isSplit) {
+          window.rave.tabSplitToggle(id, item.splitUrl, item.splitRatio, item.activeSide);
+        }
+      });
+    }
+  });
+} else {
+  createTab();
+}
 
 // ===== Pantalla dividida =====
 function updateSplitIndicator() {
@@ -1071,6 +1097,11 @@ window.rave.onTabSplitState(({ id, isSplit, activeSide }) => {
   if (!t) return;
   t.isSplit = isSplit;
   t.activeSide = activeSide;
+  if (!isSplit) {
+    t.primaryUrl = null;
+    t.splitUrl = null;
+    t.splitRatio = null;
+  }
   t.el.classList.toggle('split-tab', isSplit);
   
   // Manejar icono de división en la pestaña
@@ -1101,6 +1132,17 @@ window.rave.onTabSplitFocus(({ id, side }) => {
   if (id === activeId) {
     updateSplitIndicator();
   }
+});
+
+window.rave.onTabSplitRatioUpdated(({ id, splitRatio }) => {
+  const t = tabs.get(id);
+  if (t) {
+    t.splitRatio = splitRatio;
+  }
+});
+
+window.rave.onSaveSession(() => {
+  saveSession();
 });
 
 // ===== Arrastrar y soltar para dividir pestañas =====

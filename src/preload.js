@@ -61,9 +61,13 @@ contextBridge.exposeInMainWorld('rave', {
   winIsMaximized: () => ipcRenderer.invoke('rave:win-is-maximized'),
   onWinState: (cb) => on('rave:win-state', cb),
 
-  // Pantalla dividida
-  tabSplitToggle: (id, newTabUrl) => ipcRenderer.send('rave:tab-split-toggle', { id, newTabUrl }),
+  tabSplitToggle: (id, newTabUrl, splitRatio, activeSide) => ipcRenderer.send('rave:tab-split-toggle', { id, newTabUrl, splitRatio, activeSide }),
   tabSplitMerge: (targetId, sourceId, side) => ipcRenderer.send('rave:tab-split-merge', { targetId, sourceId, side }),
   onTabSplitState: (cb) => on('rave:tab-split-state', cb),
   onTabSplitFocus: (cb) => on('rave:tab-split-focus', cb),
+  onSaveSession: (cb) => on('rave:save-session', cb),
+  onTabSplitRatioUpdated: (cb) => on('rave:tab-split-ratio-updated', cb),
+  dividerDragStart: (screenX) => ipcRenderer.send('rave:divider-drag-start', screenX),
+  dividerDragMove: (screenX) => ipcRenderer.send('rave:divider-drag-move', screenX),
+  dividerDragEnd: () => ipcRenderer.send('rave:divider-drag-end'),
 });

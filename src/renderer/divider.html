@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      cursor: col-resize;
+      display: flex; justify-content: center; align-items: center;
+      background: transparent;
+      user-select: none;
+      overflow: hidden;
+    }
+    .line {
+      width: 1px;
+      height: 100%;
+      background: rgba(128, 128, 128, 0.25);
+      transition: background 0.15s, width 0.15s;
+    }
+    body:hover .line {
+      background: rgba(128, 128, 128, 0.6);
+      width: 3px;
+    }
+    body.dragging .line {
+      background: #3b82f6; /* Resaltado azul al arrastrar */
+      width: 4px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .line {
+        background: rgba(255, 255, 255, 0.15);
+      }
+      body:hover .line {
+        background: rgba(255, 255, 255, 0.45);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="line"></div>
+  <script>
+    let dragging = false;
+    
+    window.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+      document.body.classList.add('dragging');
+      document.body.setPointerCapture(e.pointerId);
+      window.rave.dividerDragStart(e.screenX);
+    });
+    
+    window.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      window.rave.dividerDragMove(e.screenX);
+    });
+    
+    window.addEventListener('pointerup', (e) => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('dragging');
+      document.body.releasePointerCapture(e.pointerId);
+      window.rave.dividerDragEnd();
+    });
+    
+    window.addEventListener('pointercancel', (e) => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('dragging');
+      window.rave.dividerDragEnd();
+    });
+  </script>
+</body>
+</html>

@@ -79,9 +79,16 @@ function relayout(state) {
     const y = Math.round(state.chromeH);
     const height = Math.round(h - state.chromeH);
     if (tab.splitView) {
-      const halfW = Math.round(w / 2);
-      tab.view.setBounds({ x: 0, y, width: halfW, height });
-      tab.splitView.setBounds({ x: halfW, y, width: w - halfW, height });
+      const splitRatio = tab.splitRatio ?? 0.5;
+      const gap = 6;
+      const totalW = w - gap;
+      const splitW = Math.round(totalW * splitRatio);
+      tab.view.setBounds({ x: 0, y, width: splitW, height });
+      if (tab.dividerView) {
+        tab.dividerView.setBounds({ x: splitW, y, width: gap, height });
+        tab.dividerView.setVisible(true);
+      }
+      tab.splitView.setBounds({ x: splitW + gap, y, width: w - (splitW + gap), height });
     } else {
       tab.view.setBounds({ x: 0, y, width: w, height });
     }
@@ -163,6 +170,7 @@ function selectTab(state, id) {
     const isAct = (tid === id);
     t.view.setVisible(isAct);
     if (t.splitView) t.splitView.setVisible(isAct);
+    if (t.dividerView) t.dividerView.setVisible(isAct);
   }
   relayout(state);
   if (extensions && !state.incognito) extensions.selectTab(state.tabs.get(id).view.webContents);
@@ -186,11 +194,16 @@ function closeTab(state, id) {
     state.win.contentView.removeChildView(t.splitView);
     t.splitView.webContents.close();
   }
+  if (t.dividerView) {
+    state.win.contentView.removeChildView(t.dividerView);
+    t.dividerView.webContents.close();
+  }
   state.tabs.delete(id);
   state.ui.webContents.send('rave:tab-closed', { id });
 }
 
 function notifyTabUpdated(state, tabId, wc) {
+  const t = state.tabs.get(tabId);
   const navState = {
     canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
     canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
@@ -198,6 +211,8 @@ function notifyTabUpdated(state, tabId, wc) {
   state.ui.webContents.send('rave:tab-updated', {
     id: tabId,
     url: wc.getURL(),
+    primaryUrl: t ? t.url : undefined,
+    splitUrl: t ? t.splitUrl : undefined,
     title: wc.getTitle() || 'Nueva pestaña',
     loading: wc.isLoading(),
     ...navState
@@ -226,7 +241,7 @@ function setupPaneListeners(state, tabId, side) {
   wc.removeAllListeners('input-event');
 
   // Registrar nuevos
-  const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id: tabId, ...fields });
+  const send = (fields) => state.ui.webContents.send('rave:tab-updated', { id: tabId, primaryUrl: t ? t.url : undefined, splitUrl: t ? t.splitUrl : undefined, ...fields });
   const navState = () => ({
     canGoBack: wc.navigationHistory ? wc.navigationHistory.canGoBack() : wc.canGoBack(),
     canGoForward: wc.navigationHistory ? wc.navigationHistory.canGoForward() : wc.canGoForward()
@@ -316,6 +331,16 @@ function mergeTabs(state, targetId, sourceId, side) {
     tA.activeFocus = 'secondary';
   }
 
+  // Crear el dividerView para la redimensión
+  const dividerView = new WebContentsView({
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false }
+  });
+  dividerView.setBackgroundColor('#00000000');
+  state.win.contentView.addChildView(dividerView);
+  dividerView.webContents.loadFile(path.join(__dirname, 'renderer', 'divider.html'));
+  tA.dividerView = dividerView;
+  tA.splitRatio = tA.splitRatio || 0.5;
+
   // Asegurar que ambas vistas están agregadas a la ventana
   state.win.contentView.addChildView(tA.view, 0);
   state.win.contentView.addChildView(tA.splitView, 0);
@@ -345,7 +370,7 @@ function mergeTabs(state, targetId, sourceId, side) {
   notifyTabUpdated(state, targetId, activeWc);
 }
 
-function toggleSplitTab(state, tabId, newTabUrl) {
+function toggleSplitTab(state, tabId, newTabUrl, splitRatio, activeSide) {
   const t = state.tabs.get(tabId);
   if (!t) return;
 
@@ -368,6 +393,11 @@ function toggleSplitTab(state, tabId, newTabUrl) {
     t.splitView = null;
     t.splitUrl = null;
     t.activeFocus = 'primary';
+    if (t.dividerView) {
+      state.win.contentView.removeChildView(t.dividerView);
+      t.dividerView.webContents.close();
+      t.dividerView = null;
+    }
 
     // Registrar la nueva pestaña en el estado
     state.tabs.set(newTabId, newTab);
@@ -406,7 +436,17 @@ function toggleSplitTab(state, tabId, newTabUrl) {
     state.win.contentView.addChildView(splitView, 0);
     
     t.splitView = splitView;
-    t.activeFocus = 'secondary';
+    t.activeFocus = activeSide || 'secondary';
+    t.splitRatio = splitRatio || 0.5;
+
+    // Crear el dividerView para la redimensión
+    const dividerView = new WebContentsView({
+      webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: false }
+    });
+    dividerView.setBackgroundColor('#00000000');
+    state.win.contentView.addChildView(dividerView);
+    dividerView.webContents.loadFile(path.join(__dirname, 'renderer', 'divider.html'));
+    t.dividerView = dividerView;
 
     // Cargar la página nueva pestaña por defecto en la división
     const newTabPath = path.join(__dirname, 'renderer', 'newtab.html');
@@ -426,7 +466,7 @@ function toggleSplitTab(state, tabId, newTabUrl) {
     state.ui.webContents.send('rave:tab-split-state', {
       id: tabId,
       isSplit: true,
-      activeSide: 'secondary'
+      activeSide: t.activeFocus
     });
   }
 }
@@ -614,8 +654,38 @@ ipcMain.handle('rave:inject-reader', async (e) => {
 ipcMain.handle('rave:tab-create', (e, url) => { const s = st(e); return s ? openTab(s, url).id : null; });
 ipcMain.on('rave:tab-select', (e, id) => { const s = st(e); if (s) selectTab(s, id); });
 ipcMain.on('rave:tab-close', (e, id) => { const s = st(e); if (s) closeTab(s, id); });
-ipcMain.on('rave:tab-split-toggle', (e, { id, newTabUrl }) => { const s = st(e); if (s) toggleSplitTab(s, id, newTabUrl); });
+ipcMain.on('rave:tab-split-toggle', (e, { id, newTabUrl, splitRatio, activeSide }) => { const s = st(e); if (s) toggleSplitTab(s, id, newTabUrl, splitRatio, activeSide); });
 ipcMain.on('rave:tab-split-merge', (e, { targetId, sourceId, side }) => { const s = st(e); if (s) mergeTabs(s, targetId, sourceId, side); });
+
+ipcMain.on('rave:divider-drag-start', (e, screenX) => {
+  const s = st(e);
+  if (!s || s.activeId == null) return;
+  const tab = s.tabs.get(s.activeId);
+  if (!tab || !tab.splitView) return;
+  s.dragStartRatio = tab.splitRatio ?? 0.5;
+  s.dragStartX = screenX;
+});
+
+ipcMain.on('rave:divider-drag-move', (e, screenX) => {
+  const s = st(e);
+  if (!s || s.activeId == null || s.dragStartX == null) return;
+  const tab = s.tabs.get(s.activeId);
+  if (!tab || !tab.splitView) return;
+  const [w, h] = s.win.getContentSize();
+  if (w <= 0) return;
+  const dx = screenX - s.dragStartX;
+  tab.splitRatio = Math.max(0.15, Math.min(0.85, s.dragStartRatio + dx / w));
+  relayout(s);
+  s.ui.webContents.send('rave:tab-split-ratio-updated', { id: s.activeId, splitRatio: tab.splitRatio });
+});
+
+ipcMain.on('rave:divider-drag-end', (e) => {
+  const s = st(e);
+  if (!s) return;
+  s.dragStartX = null;
+  s.dragStartRatio = null;
+  s.ui.webContents.send('rave:save-session');
+});
 ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
   const s = st(e); const t = s && s.tabs.get(id); if (!t) return;
   const targetView = (t.splitView && t.activeFocus === 'secondary') ? t.splitView : t.view;
