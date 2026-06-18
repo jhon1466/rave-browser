@@ -2,6 +2,11 @@
 const path = require('path');
 const fs = require('fs');
 
+// Eliminar la bandera AutomationControlled que Google usa para detectar Electron
+// y bloquear el inicio de sesión ("navegador no seguro").
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+
+
 // ====== Estado de la ventana (tamaño/posición/maximizada) ======
 const WIN_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json');
 function loadWinState() {
@@ -25,6 +30,11 @@ const { setupUpdater, checkNow, quitAndInstall } = require('./updater');
 const { isDefaultBrowser, setDefaultBrowser } = require('./defaultBrowser');
 const { registerShieldsIPC, installShieldsOnSession, getShields, shieldsAllowSet, setGlobalHttpsOnly } = require('./shields');
 const { addHistory, registerHistoryIPC } = require('./history');
+const { addToReadingList, registerReadingListIPC } = require('./readinglist');
+
+// Script PiP inyectado via executeJavaScript (corre en el mundo de la página,
+// no en contexto aislado, por lo que requestPictureInPicture funciona sin problemas).
+const PIP_SCRIPT = fs.readFileSync(path.join(__dirname, 'pip.js'), 'utf8');
 
 // Envía un mensaje a la interfaz de todas las ventanas abiertas.
 const broadcast = (ch, data) => { for (const s of states.values()) s.ui.webContents.send(ch, data); };
@@ -125,65 +135,17 @@ const UI_FILE = path.join(__dirname, 'renderer', 'index.html');
 // Script anti-anuncios de YouTube (respaldo, por si el scriptlet de uBO falla).
 const YT_ADSKIP = `(function(){if(window.__raveYT)return;window.__raveYT=true;function t(){try{var v=document.querySelector('video'),p=document.querySelector('.html5-video-player');var s=document.querySelector('.ytp-ad-skip-button,.ytp-ad-skip-button-modern,.ytp-skip-ad-button');if(s)s.click();if(p&&p.classList.contains('ad-showing')&&v){if(!isNaN(v.duration)&&isFinite(v.duration))v.currentTime=v.duration;v.muted=true;v.playbackRate=16;}var o=document.querySelector('.ytp-ad-overlay-close-button,.ytp-ad-overlay-close-container');if(o)o.click();document.querySelectorAll('#player-ads,.ytp-ad-overlay-slot,ytd-display-ad-renderer,ytd-promoted-video-renderer,ytd-ad-slot-renderer,ytd-in-feed-ad-layout-renderer,#masthead-ad').forEach(function(e){e.remove();});}catch(e){}}setInterval(t,250);t();})();`;
 
-const PIP_SCRIPT = `(function(){
-  if(window.__ravePIP)return; window.__ravePIP=true;
-  const ST=document.createElement('style');
-  ST.textContent='.__rpip{position:fixed;z-index:2147483647;padding:7px 16px;border:none;border-radius:20px;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;font-size:13px;font-weight:500;font-family:system-ui,sans-serif;cursor:pointer;display:flex;align-items:center;gap:7px;opacity:0;pointer-events:none;transition:opacity 180ms ease;white-space:nowrap;box-shadow:0 2px 12px rgba(0,0,0,0.4);}.__rpip.show{opacity:1;pointer-events:auto;}.__rpip svg{width:16px;height:16px;fill:#fff;flex-shrink:0;}.__rpip:hover{background:rgba(0,0,0,0.92);}';
-  const head=document.head||document.documentElement;
-  head.appendChild(ST);
-  const ICON='<svg viewBox="0 0 24 24"><path d="M19 7H9a2 2 0 0 0-2 2v6H5V9a4 4 0 0 1 4-4h10v2zm2 4h-8a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1z"/></svg>';
-  let btn=null,hideTimer=null,activeVideo=null;
-  function ensureBtn(){
-    if(btn&&btn.isConnected)return btn;
-    btn=document.createElement('button');
-    btn.className='__rpip';
-    btn.innerHTML=ICON+'<span>Picture in Picture</span>';
-    btn.addEventListener('click',e=>{
-      e.stopPropagation();e.preventDefault();
-      if(activeVideo)activeVideo.requestPictureInPicture().catch(()=>{});
-    });
-    btn.addEventListener('mouseenter',()=>clearTimeout(hideTimer));
-    btn.addEventListener('mouseleave',()=>scheduleHide());
-    (document.body||document.documentElement).appendChild(btn);
-    return btn;
-  }
-  function showOn(video){
-    const r=video.getBoundingClientRect();
-    if(r.width<160||r.height<90||r.top<0)return;
-    activeVideo=video;
-    const b=ensureBtn();
-    b.style.left=Math.round(r.left+r.width/2)+'px';
-    b.style.top=Math.round(r.top+14)+'px';
-    b.style.transform='translateX(-50%)';
-    clearTimeout(hideTimer);
-    b.classList.add('show');
-  }
-  function scheduleHide(){hideTimer=setTimeout(()=>{btn&&btn.classList.remove('show');},500);}
-  function findVideo(x,y){
-    // Busca en todos los elementos bajo el cursor, incluyendo capas encima del video
-    const els=document.elementsFromPoint(x,y);
-    for(const el of els){
-      if(el.tagName==='VIDEO')return el;
-    }
-    // Fallback: buscar el video más cercano al punto
-    let best=null,bestDist=Infinity;
-    document.querySelectorAll('video').forEach(v=>{
-      const r=v.getBoundingClientRect();
-      if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom){
-        const dist=Math.hypot(x-(r.left+r.width/2),y-(r.top+r.height/2));
-        if(dist<bestDist){bestDist=dist;best=v;}
-      }
-    });
-    return best;
-  }
-  let lastX=0,lastY=0;
-  document.addEventListener('mousemove',e=>{
-    lastX=e.clientX;lastY=e.clientY;
-    const v=findVideo(e.clientX,e.clientY);
-    if(v&&!v.disablePictureInPicture&&(v.readyState||0)>=1)showOn(v);
-    else if(!btn?.matches(':hover'))scheduleHide();
-  },{passive:true,capture:true});
-})();`;
+
+// Solo estiliza la barra de scroll PRINCIPAL del documento (html/body).
+// No usamos un selector global porque `::-webkit-scrollbar` con !important
+// anula el `display:none` que sitios como Facebook ponen a sus contenedores
+// internos, haciendo aparecer un segundo scrollbar.
+const SCROLLBAR_CSS = `
+  html::-webkit-scrollbar, body::-webkit-scrollbar { width: 10px; height: 10px; }
+  html::-webkit-scrollbar-track, body::-webkit-scrollbar-track { background: transparent; }
+  html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.4); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+  html::-webkit-scrollbar-thumb:hover, body::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.65); background-clip: padding-box; }
+`;
 
 const COOKIE_CONSENT_CSS = `
   #cookie-banner, #cookie-notice, #cookie-popup, #cookie-bar,
@@ -206,6 +168,7 @@ function createWindow(incognito = false) {
   if (incognito) {
     partition = 'incognito-' + Date.now();
     tabSession = session.fromPartition(partition);   // en memoria (sin persist:)
+    cleanUserAgent(tabSession);
     if (privacy.level !== 'off') enableBlockingOn(tabSession);
     attachDownloads(tabSession);
     installPrivacy(tabSession);
@@ -293,6 +256,40 @@ function relayout(state) {
   state.ui.webContents.send('rave:view-size', { w, h });
 }
 
+// Abre accounts.google.com en una ventana real (BrowserWindow) con un preload
+// que limpia las señales de Electron en el MUNDO REAL de la página, SIN usar el
+// depurador/CDP (que Google detecta como automatización). La sesión es la
+// principal, así las cookies del login quedan disponibles en Rave.
+function openGoogleAuthWindow(url, originWc, parentWin) {
+  const { BrowserWindow } = require('electron');
+  const chromeUA = chromeUAString();
+  const popup = new BrowserWindow({
+    width: 500, height: 640,
+    parent: parentWin,
+    title: 'Iniciar sesión con Google',
+    autoHideMenuBar: true,
+    webPreferences: {
+      session: session.defaultSession,
+      nodeIntegration: false,
+      // contextIsolation:false permite que el preload corra en el mundo real
+      // y pueda sobrescribir navigator.* antes que los scripts de Google.
+      contextIsolation: false,
+      sandbox: false,
+      preload: path.join(__dirname, 'google-auth-preload.js')
+    }
+  });
+  popup.webContents.setUserAgent(chromeUA);
+  popup.webContents.session.setUserAgent(chromeUA);
+  popup.loadURL(url);
+  const onNav = (_e, navUrl) => {
+    if (!navUrl.includes('accounts.google.com') && !navUrl.includes('google.com/signin')) {
+      if (!popup.isDestroyed()) popup.close();
+      if (!originWc.isDestroyed()) originWc.reload();
+    }
+  };
+  popup.webContents.on('did-navigate', onNav);
+}
+
 // Detecta si una URL es un popup de autenticación OAuth que necesita window.opener
 function isAuthPopupUrl(u) {
   return /accounts\.google\.com|appleid\.apple\.com|facebook\.com\/dialog|twitter\.com\/oauth|github\.com\/login\/oauth|login\.microsoftonline\.com|discord\.com\/oauth2|auth\d*\.|oauth\.|\/oauth|\/login\/oauth|sso\.|\/signin|\/authorize\?/i.test(u);
@@ -320,11 +317,10 @@ function makeWindowOpenHandler(state) {
 // ====== Pestañas ======
 function openTab(state, url) {
   const id = tabSeq++;
-  const PIP_PRELOAD = path.join(__dirname, 'pip.js');
   const view = new WebContentsView({
     webPreferences: state.incognito
-      ? { partition: state.partition, spellcheck: true, preload: PIP_PRELOAD }
-      : { spellcheck: true, preload: PIP_PRELOAD }
+      ? { partition: state.partition, spellcheck: true }
+      : { spellcheck: true }
   });
   view.setBackgroundColor(state.incognito ? '#0d0d0f' : '#ffffff');
   state.win.contentView.addChildView(view, 0);          // por debajo de la interfaz
@@ -375,7 +371,7 @@ function openTab(state, url) {
   };
   wc.on('did-navigate', (e, url) => { onNav(); const z = getZoom(url); if (z !== 1) wc.setZoomFactor(z); });
   wc.on('did-navigate-in-page', onNav);
-  wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); });
+  wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, id); wc.executeJavaScript(PIP_SCRIPT, true).catch(() => {}); });
   // Indicador de audio de la pestaña.
   wc.on('audio-state-changed', () => {
     const t = state.tabs.get(id);
@@ -410,7 +406,14 @@ function openTab(state, url) {
       state.ui.webContents.send('rave:context-menu', { id, p: { ...p, x: p.x, panelOffsetX: 0 } });
     }
   });
-  wc.setWindowOpenHandler(makeWindowOpenHandler(state));
+  const normalOpenHandler = makeWindowOpenHandler(state);
+  wc.setWindowOpenHandler((details) => {
+    if (details.url.includes('accounts.google.com')) {
+      openGoogleAuthWindow(details.url, wc, state.win);
+      return { action: 'deny' };
+    }
+    return normalOpenHandler(details);
+  });
 
   // Cuando el usuario hace clic en el lado primario, recuperar el foco si estaba en el secundario
   wc.on('input-event', (_e, inputEvent) => {
@@ -423,8 +426,13 @@ function openTab(state, url) {
     }
   });
 
-  // Modo solo HTTPS: actualiza la navegación principal de http:// a https://.
+  // Modo solo HTTPS + login de Google en ventana real (sin CDP).
   wc.on('will-navigate', (e, navUrl) => {
+    if (navUrl.includes('accounts.google.com')) {
+      e.preventDefault();
+      openGoogleAuthWindow(navUrl, wc, state.win);
+      return;
+    }
     if (wantHTTPS() && navUrl.startsWith('http://') && !isLocalUrl(navUrl)) {
       e.preventDefault();
       wc.loadURL(navUrl.replace(/^http:\/\//i, 'https://'));
@@ -439,6 +447,32 @@ function openTab(state, url) {
   // Si la página cierra su propia ventana (p. ej. popup de login OAuth),
   // cerramos la pestaña en vez de dejar un webContents muerto.
   wc.on('destroyed', () => { if (state.tabs.has(id)) closeTab(state, id); });
+
+  // Fullscreen HTML5 (videos, juegos, etc.) → ocultar chrome completamente
+  wc.on('enter-html-full-screen', () => {
+    state._savedChromeH = state.chromeH;
+    state.chromeH = 0;
+    state.ui.setBounds({ x: 0, y: 0, width: 1, height: 1 }); // casi invisible pero vivo
+    relayout(state);
+  });
+  wc.on('leave-html-full-screen', () => {
+    state.chromeH = state._savedChromeH ?? 96;
+    const [w, h] = state.win.getContentSize();
+    state.ui.setBounds({ x: 0, y: 0, width: w, height: Math.round(state.chromeH) });
+    relayout(state);
+  });
+
+  // Ctrl+rueda del ratón → zoom
+  wc.on('zoom-changed', (_e, direction) => {
+    const t = state.tabs.get(id);
+    if (!t) return;
+    const delta = direction === 'in' ? 0.1 : -0.1;
+    const z = Math.min(3, Math.max(0.25, Math.round(((t.zoom || 1) + delta) * 10) / 10));
+    t.zoom = z;
+    wc.setZoomFactor(z);
+    try { saveZoom(new URL(wc.getURL()).origin, z); } catch {}
+    state.ui.webContents.send('rave:tab-updated', { id, zoom: z });
+  });
 
   wc.loadURL(url);
   state.ui.webContents.send('rave:tab-opened', { id, url });
@@ -615,7 +649,7 @@ function setupPaneListeners(state, tabId, side) {
   };
   wc.on('did-navigate', onNav);
   wc.on('did-navigate-in-page', onNav);
-  wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, tabId); });
+  wc.on('dom-ready', () => { maybeYouTube(wc); detectPasswordForms(wc, state, tabId); wc.executeJavaScript(PIP_SCRIPT, true).catch(() => {}); });
   wc.on('found-in-page', (_e, r) => {
     const tab = state.tabs.get(tabId);
     if (tab && tab.activeFocus === side) state.ui.webContents.send('rave:tab-found', { id: tabId, ...r });
@@ -650,6 +684,19 @@ function setupPaneListeners(state, tabId, side) {
         notifyTabUpdated(state, tabId, wc);
       }
     }
+  });
+
+  wc.on('enter-html-full-screen', () => {
+    state._savedChromeH = state.chromeH;
+    state.chromeH = 0;
+    state.ui.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+    relayout(state);
+  });
+  wc.on('leave-html-full-screen', () => {
+    state.chromeH = state._savedChromeH ?? 96;
+    const [w, h] = state.win.getContentSize();
+    state.ui.setBounds({ x: 0, y: 0, width: w, height: Math.round(state.chromeH) });
+    relayout(state);
   });
 }
 
@@ -775,8 +822,8 @@ function toggleSplitTab(state, tabId, newTabUrl, splitRatio, activeSide) {
     // Abrir pantalla dividida
     const splitView = new WebContentsView({
       webPreferences: state.incognito
-        ? { partition: state.partition, spellcheck: true, preload: path.join(__dirname, 'pip.js') }
-        : { spellcheck: true, preload: path.join(__dirname, 'pip.js') }
+        ? { partition: state.partition, spellcheck: true }
+        : { spellcheck: true }
     });
     splitView.setBackgroundColor(state.incognito ? '#0d0d0f' : '#ffffff');
     state.win.contentView.addChildView(splitView, 0);
@@ -823,7 +870,35 @@ function maybeYouTube(wc) {
   if (/(^|\.)youtube\.com|youtube-nocookie\.com/.test(wc.getURL()))
     wc.executeJavaScript(YT_ADSKIP, true).catch(() => {});
   wc.insertCSS(COOKIE_CONSENT_CSS).catch(() => {});
+  wc.insertCSS(SCROLLBAR_CSS).catch(() => {});
+  wc.executeJavaScript(SCROLLFIX_JS, true).catch(() => {});
 }
+
+// Corrige el patrón de doble scrollbar: cuando <html> y <body> son AMBOS
+// desplazables (html overflow:scroll + body overflow:auto, típico de Facebook),
+// se muestran dos barras. Hacemos que el body fluya al html para dejar una sola.
+const SCROLLFIX_JS = `(function(){
+  if (window.__raveScrollFix) return; window.__raveScrollFix = true;
+  function isScroll(o){ return o==='scroll'||o==='auto'; }
+  function fix(){
+    var h=document.documentElement, b=document.body;
+    if(!b) return;
+    var ho=getComputedStyle(h).overflowY, bo=getComputedStyle(b).overflowY;
+    // Patrón doble-barra (Facebook): html y body son AMBOS scrollables y anidados.
+    // El body queda a su altura natural (mayor que la ventana) en vez de 100vh,
+    // por lo que el html también desborda -> dos barras. Forzamos el body a altura
+    // de ventana para que sea el ÚNICO contenedor de scroll (el del feed infinito)
+    // y el html deje de desbordar.
+    if(isScroll(ho) && isScroll(bo)){
+      h.style.setProperty('overflow','hidden','important');
+      b.style.setProperty('height','100vh','important');
+      b.style.setProperty('max-height','100vh','important');
+      b.style.setProperty('overflow-y','auto','important');
+    }
+  }
+  fix();
+  var n=0, t=setInterval(function(){ fix(); if(++n>15) clearInterval(t); }, 500);
+})();`;
 
 // Detecta formularios con <input type="password"> y notifica la UI.
 async function detectPasswordForms(wc, state, tabId) {
@@ -1093,7 +1168,25 @@ if (!gotLock) {
 // URL recibida al arrancar (cuando Rave es el navegador predeterminado).
 const initialUrl = () => process.argv.find((a) => /^https?:\/\//i.test(a));
 
+// User-Agent "limpio": elimina los tokens Electron/Rave para que sitios que
+// hacen sniffing de UA (Facebook, etc.) sirvan el layout normal de Chrome y no
+// una versión degradada (que muestra scrollbars internos de más, entre otros).
+// UA de Chrome completo y consistente con la versión de Chromium que trae
+// Electron. Construirlo entero (en vez de recortar el de Electron) evita que
+// Google marque el navegador como "no seguro" por una cadena UA atípica.
+// Versión de Chrome estable y real que anunciamos (no la de Electron, que va
+// por delante y Google puede marcar como falsa). Mantener actualizada a una
+// versión estable existente.
+const SPOOF_CHROME_VERSION = '136.0.0.0';
+function chromeUAString() {
+  return `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${SPOOF_CHROME_VERSION} Safari/537.36`;
+}
+function cleanUserAgent(ses) {
+  try { ses.setUserAgent(chromeUAString()); } catch {}
+}
+
 app.whenReady().then(async () => {
+  cleanUserAgent(session.defaultSession);
   await setupAdblock(session.defaultSession);
   attachDownloads(session.defaultSession);
   installPrivacy(session.defaultSession);
@@ -1102,6 +1195,7 @@ app.whenReady().then(async () => {
   installShieldsOnSession(session.defaultSession);
   registerShieldsIPC();
   registerHistoryIPC();
+  registerReadingListIPC();
   try { session.defaultSession.setSpellCheckerLanguages(['es', 'en-US']); } catch {}
 
   // Sistema de extensiones: APIs chrome.*, acciones de barra y popups.
@@ -1452,6 +1546,8 @@ ipcMain.on('rave:tab-action', (e, { id, action, arg }) => {
     case 'zoom': wc.setZoomFactor(arg); try { saveZoom(new URL(wc.getURL()).origin, arg); } catch {} break;
     case 'find': wc.findInPage(arg.text, arg.opts); break;
     case 'stopFind': wc.stopFindInPage('clearSelection'); break;
+    case 'share': { const { clipboard } = require('electron'); clipboard.writeText(wc.getURL()); break; }
+    case 'rl-add': { const ti = t ? t.title : wc.getTitle(); const fa = t ? t.favicon : ''; addToReadingList(wc.getURL(), ti, fa); break; }
     case 'inspect': wc.inspectElement(arg.x, arg.y); break;
     case 'copy': wc.copy(); break;
     case 'cut': wc.cut(); break;

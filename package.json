@@ -1,6 +1,6 @@
 {
   "name": "rave",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Rave — un navegador minimalista en blanco, negro y gris basado en Chromium (Electron).",
   "main": "src/main.js",
   "scripts": {

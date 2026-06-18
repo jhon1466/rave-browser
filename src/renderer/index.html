@@ -15,7 +15,9 @@
   <div id="chrome">
     <!-- Barra de pestañas -->
     <div id="tabbar">
-      <div id="tabs"></div>
+      <button id="tabs-scroll-left" class="tabs-scroll-btn" title="Pestañas anteriores">&#8249;</button>
+      <div id="tabs-clip"><div id="tabs"></div></div>
+      <button id="tabs-scroll-right" class="tabs-scroll-btn" title="Más pestañas">&#8250;</button>
       <button id="new-tab" class="icon-btn" data-icon="plus" title="Nueva pestaña (Ctrl+T)"></button>
       <div id="drag-spacer"></div>
       <div id="win-controls">
@@ -86,6 +88,8 @@
         <button data-act="sessions"><span data-icon="layers"></span> Sesiones guardadas</button>
         <button data-act="capture"><span data-icon="camera"></span> Captura de pantalla</button>
         <button data-act="qr"><span data-icon="globe"></span> Crear QR de esta página</button>
+        <button data-act="share"><span data-icon="copy"></span> Copiar URL</button>
+        <button data-act="rl-add"><span data-icon="book"></span> Guardar en lista de lectura</button>
         <div class="sep"></div>
         <button data-act="webstore"><span data-icon="download"></span> Tienda de extensiones (Chrome)</button>
         <button data-act="extensions"><span data-icon="settings"></span> Extensiones instaladas</button>
@@ -187,6 +191,7 @@
       <div class="sidebar-tabs">
         <button class="sidebar-tab active" data-panel="bookmarks">Marcadores</button>
         <button class="sidebar-tab" data-panel="history">Historial</button>
+        <button class="sidebar-tab" data-panel="readinglist">Lectura</button>
         <button class="sidebar-tab" data-panel="notes">Notas</button>
       </div>
       <button class="icon-btn" id="sidebar-close" title="Cerrar panel lateral">×</button>

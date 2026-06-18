@@ -145,7 +145,9 @@ window.rave.onTabOpened(({ id, url }) => {
     `<button class="tab-audio hidden" title="Silenciar">${ICONS.volume}</button>` +
     `<span class="close" title="Cerrar">${ICONS.close}</span>`;
   $tabs.appendChild(el);
+  setTimeout(() => { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); updateTabsOverflow(); }, 50);
   el.addEventListener('click', (e) => { if (!e.target.closest('.close') && !e.target.closest('.tab-audio')) window.rave.tabSelect(id); });
+  el.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); window.rave.tabClose(id); } });
   el.querySelector('.close').addEventListener('click', (e) => { e.stopPropagation(); window.rave.tabClose(id); });
   el.querySelector('.tab-audio').addEventListener('click', (e) => { e.stopPropagation(); toggleMute(id); });
   el.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); showTabMenu(id, e.clientX, e.clientY); });
@@ -237,6 +239,7 @@ function closeTabsToRight(id) {
 window.rave.onTabActivated(({ id }) => {
   activeId = id;
   for (const [tid, t] of tabs) t.el.classList.toggle('active', tid === id);
+  tabs.get(id)?.el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   updateChrome();
 });
 
@@ -248,6 +251,7 @@ window.rave.onTabClosed(({ id }) => {
   const idx = order.indexOf(id);
   animateTabClose(t.el);
   tabs.delete(id);
+  setTimeout(updateTabsOverflow, 250);
   if (activeId === id) {
     const next = order[idx + 1] ?? order[idx - 1];
     if (next != null && tabs.has(next)) window.rave.tabSelect(next);
@@ -266,9 +270,23 @@ function animateTabClose(el) {
   setTimeout(() => el.isConnected && el.remove(), 320);   // respaldo
 }
 
-window.rave.onTabUpdated(({ id, title, url, favicon, loading, canGoBack, canGoForward, muted, audible, suspended }) => {
+let _zoomToast = null, _zoomToastT = null;
+function showZoomToast(pct) {
+  if (!_zoomToast) {
+    _zoomToast = document.createElement('div');
+    _zoomToast.id = 'zoom-toast';
+    document.body.appendChild(_zoomToast);
+  }
+  _zoomToast.textContent = pct + '%';
+  _zoomToast.classList.add('visible');
+  clearTimeout(_zoomToastT);
+  _zoomToastT = setTimeout(() => { _zoomToast && _zoomToast.classList.remove('visible'); }, 1200);
+}
+
+window.rave.onTabUpdated(({ id, title, url, favicon, loading, canGoBack, canGoForward, muted, audible, suspended, zoom }) => {
   const t = tabs.get(id);
   if (!t) return;
+  if (zoom !== undefined && id === activeId) { t.zoom = zoom; $('zoom-level').textContent = Math.round(zoom * 100) + '%'; showZoomToast(Math.round(zoom * 100)); }
   if (muted !== undefined) { t.muted = muted; updateAudio(t); }
   if (audible !== undefined) { t.audible = audible; updateAudio(t); }
   if (suspended !== undefined) { t.suspended = suspended; t.el.classList.toggle('suspended', suspended); }
@@ -713,6 +731,31 @@ $('home').addEventListener('click', () => act('navigate', homeURL()));
 $star.addEventListener('click', toggleBookmark);
 $('new-tab').addEventListener('click', () => createTab());
 
+// ===== Scroll de pestañas =====
+const $tabsClip = $('tabs-clip');
+const $tabbar = $tabsClip.closest('#tabbar') || $tabsClip.parentElement;
+
+function updateTabsOverflow() {
+  const overflow = $tabs.scrollWidth > $tabsClip.clientWidth + 2;
+  $tabbar.classList.toggle('tabs-overflow', overflow);
+}
+
+$('tabs-scroll-left').addEventListener('click', () => {
+  $tabs.scrollBy({ left: -200, behavior: 'smooth' });
+});
+$('tabs-scroll-right').addEventListener('click', () => {
+  $tabs.scrollBy({ left: 200, behavior: 'smooth' });
+});
+
+$tabs.addEventListener('wheel', (e) => {
+  if (e.deltaY !== 0) {
+    e.preventDefault();
+    $tabs.scrollBy({ left: e.deltaY * 1.5, behavior: 'smooth' });
+  }
+}, { passive: false });
+
+new ResizeObserver(updateTabsOverflow).observe($tabsClip);
+
 // ===== Modo lector =====
 $('reader-btn').addEventListener('click', async () => {
   const res = await window.rave.injectReader();
@@ -787,6 +830,8 @@ $menu.addEventListener('click', (e) => {
   else if (a === 'print') window.rave.print();
   else if (a === 'savepdf') window.rave.printPDF().then((f) => toast({ name: 'PDF guardado' }, f ? 'En Descargas' : 'Error al generar'));
   else if (a === 'pip') window.rave.pip();
+  else if (a === 'share') { const t = activeTab(); if (t) { act('share'); toast({ name: 'URL copiada' }, t.url); } }
+  else if (a === 'rl-add') { const t = activeTab(); if (t && !isInternal(t.url)) { act('rl-add'); toast({ name: 'Lista de lectura' }, 'Página guardada'); } }
   else if (a === 'sidebar') { openSidebar(); return; }
   else openPanel(a);
   updateOverlay();
@@ -2166,6 +2211,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'escape') closeFind();
 });
 
+
 // ===== Escudo =====
 // Optimizado: se pausa con la ventana oculta y solo toca el DOM si cambia.
 let _lastBlocked = -1;
@@ -2485,6 +2531,27 @@ async function renderSidebarPanel() {
     };
     renderHist('');
     $('sb-hist-search').addEventListener('input', e => renderHist(e.target.value));
+  } else if (sidebarActivePanel === 'readinglist') {
+    $sidebarBody.innerHTML = `<div id="sb-rl-list"></div>`;
+    const renderRL = async () => {
+      const entries = await window.rave.rlGet();
+      const list = $('sb-rl-list');
+      if (!list) return;
+      if (!entries || !entries.length) { list.innerHTML = '<div class="sb-empty">Lista de lectura vacía.<br>Usa el menú ☰ → "Guardar en lista de lectura".</div>'; return; }
+      list.innerHTML = '';
+      entries.forEach(e => {
+        let host = '';
+        try { host = new URL(e.url).hostname; } catch {}
+        const item = document.createElement('div');
+        item.className = 'sb-item sb-rl-item';
+        item.innerHTML = `<img class="sb-favicon" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=16" width="14" height="14" onerror="this.style.display='none'"><span class="sb-title"></span><button class="sb-rl-del" title="Eliminar">×</button>`;
+        item.querySelector('.sb-title').textContent = e.title || e.url;
+        item.querySelector('.sb-rl-del').addEventListener('click', async (ev) => { ev.stopPropagation(); await window.rave.rlDelete(e.url); renderRL(); });
+        item.addEventListener('click', (ev) => { if (!ev.target.classList.contains('sb-rl-del')) createTab(e.url); });
+        list.appendChild(item);
+      });
+    };
+    renderRL();
   } else if (sidebarActivePanel === 'notes') {
     $sidebarBody.innerHTML = `<textarea id="sb-notes" class="sb-notes" placeholder="Notas…"></textarea>`;
     const area = $('sb-notes');

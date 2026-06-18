@@ -151,4 +151,9 @@ contextBridge.exposeInMainWorld('rave', {
 
   // Verificar contraseña comprometida (HIBP)
   checkPwned: (password) => ipcRenderer.invoke('rave:check-pwned', password),
+
+  // Lista de lectura
+  rlGet: () => ipcRenderer.invoke('rave:rl-get'),
+  rlDelete: (url) => ipcRenderer.invoke('rave:rl-delete', url),
+  rlClear: () => ipcRenderer.invoke('rave:rl-clear'),
 });
