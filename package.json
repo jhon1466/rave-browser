@@ -9,7 +9,7 @@
     "publish": "electron-builder --publish always"
   },
   "author": "",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "build": {
     "appId": "com.rave.browser",
     "productName": "Rave",

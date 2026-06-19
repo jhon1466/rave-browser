@@ -1,8 +1,10 @@
 package com.rave.browser
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.print.PrintManager
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.rave.browser.browser.*
 import com.rave.browser.ui.*
 import com.rave.browser.ui.theme.RaveTheme
@@ -100,6 +103,7 @@ fun BrowserApp(
     val activity = context as ComponentActivity
     val prefs = remember { Prefs(context) }
     val secure = remember { SecureStore(context) }
+    val sitePerms = remember { SitePermissions(context) }
     val coroutine = rememberCoroutineScope()
 
     val tabs = remember { mutableStateListOf<TabModel>() }
@@ -120,6 +124,8 @@ fun BrowserApp(
     var update by remember { mutableStateOf<Updater.Info?>(null) }
     var fileCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var permissionPrompt by remember { mutableStateOf<PermissionPrompt?>(null) }
+    var pendingGrant by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
 
     val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val cb = fileCallback ?: return@rememberLauncherForActivityResult
@@ -134,6 +140,38 @@ fun BrowserApp(
         val intent = DefaultBrowser.createRequestIntent(context)
         if (intent != null) defaultBrowserLauncher.launch(intent)
         else Toast.makeText(context, "Rave ya es el navegador predeterminado", Toast.LENGTH_SHORT).show()
+    }
+
+    // Pide a una web los permisos del SO que faltan; al resolverse, concede o
+    // deniega también el permiso web a través de pendingGrant.
+    val runtimePermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result.values.all { it }
+        pendingGrant?.invoke(granted)
+        pendingGrant = null
+    }
+
+    // Concede el permiso web asegurando primero el permiso runtime del SO.
+    fun grantWithOsPermission(prompt: PermissionPrompt) {
+        val missing = prompt.osPermissions.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) prompt.onResult(true)
+        else {
+            pendingGrant = prompt.onResult
+            runtimePermLauncher.launch(missing.toTypedArray())
+        }
+    }
+
+    // Decide qué hacer con una solicitud de permiso: respetar la decisión
+    // recordada o mostrar el diálogo de consentimiento.
+    fun handlePermission(prompt: PermissionPrompt) {
+        when (sitePerms.decision(prompt.origin, prompt.osPermissions)) {
+            false -> prompt.onResult(false)
+            true -> grantWithOsPermission(prompt)
+            null -> permissionPrompt = prompt
+        }
     }
 
     fun openTabInternal(
@@ -163,7 +201,8 @@ fun BrowserApp(
                 fileCallback = callback
                 fileLauncher.launch(params.createIntent())
                 true
-            }
+            },
+            onPermission = { prompt -> handlePermission(prompt) }
         )
         tabList.add(createTab(activity, p, s, incognito, start, cb, ua))
         after()
@@ -511,6 +550,41 @@ fun BrowserApp(
                 }) { Text("Actualizar") }
             },
             dismissButton = { TextButton(onClick = { update = null }) { Text("Ahora no") } }
+        )
+    }
+
+    permissionPrompt?.let { prompt ->
+        var rememberChoice by remember(prompt) { mutableStateOf(true) }
+        AlertDialog(
+            onDismissRequest = { prompt.onResult(false); permissionPrompt = null },
+            title = { Text("Permiso solicitado") },
+            text = {
+                Column {
+                    Text("${prompt.origin} quiere usar: ${prompt.labels.joinToString(", ")}")
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { rememberChoice = !rememberChoice }
+                    ) {
+                        Checkbox(checked = rememberChoice, onCheckedChange = { rememberChoice = it })
+                        Text("Recordar para este sitio")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (rememberChoice) sitePerms.remember(prompt.origin, prompt.osPermissions, true)
+                    permissionPrompt = null
+                    grantWithOsPermission(prompt)
+                }) { Text("Permitir") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    if (rememberChoice) sitePerms.remember(prompt.origin, prompt.osPermissions, false)
+                    prompt.onResult(false)
+                    permissionPrompt = null
+                }) { Text("Bloquear") }
+            }
         )
     }
 }

@@ -14,6 +14,9 @@ android/captures/
 *.apk
 *.aab
 
+# IDE
+.idea/
+
 # Sistema
 .DS_Store
 Thumbs.db
