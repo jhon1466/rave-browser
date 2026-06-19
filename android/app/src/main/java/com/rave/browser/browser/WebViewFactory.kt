@@ -1,5 +1,6 @@
 package com.rave.browser.browser
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.Bitmap
@@ -11,11 +12,20 @@ import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import java.net.URL
 
+/** Solicitud de permiso de una web, pendiente de decisión del usuario. */
+data class PermissionPrompt(
+    val origin: String,
+    val osPermissions: List<String>,   // permisos runtime de Android necesarios
+    val labels: List<String>,          // etiquetas legibles: Cámara, Micrófono, Ubicación
+    val onResult: (Boolean) -> Unit    // true = conceder (web + SO), false = bloquear
+)
+
 data class WebViewCallbacks(
     val onPopup: (String) -> Unit,
     val onDownload: (String, String?, String?, String?) -> Unit,
     val onPasswordForm: (String) -> Unit = {},
-    val onFileChooser: ((ValueCallback<Array<Uri>>, WebChromeClient.FileChooserParams) -> Boolean)? = null
+    val onFileChooser: ((ValueCallback<Array<Uri>>, WebChromeClient.FileChooserParams) -> Boolean)? = null,
+    val onPermission: (PermissionPrompt) -> Unit = { it.onResult(false) }
 )
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -116,11 +126,43 @@ fun createTab(
         override fun onGeolocationPermissionsShowPrompt(
             origin: String, callback: GeolocationPermissions.Callback
         ) {
-            callback.invoke(origin, true, false)
+            activity.runOnUiThread {
+                callbacks.onPermission(
+                    PermissionPrompt(
+                        origin = origin,
+                        osPermissions = listOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                        labels = listOf("Ubicación")
+                    ) { granted -> callback.invoke(origin, granted, false) }
+                )
+            }
         }
 
         override fun onPermissionRequest(request: PermissionRequest) {
-            request.grant(request.resources)
+            val os = mutableListOf<String>()
+            val labels = mutableListOf<String>()
+            request.resources.forEach { res ->
+                when (res) {
+                    PermissionRequest.RESOURCE_VIDEO_CAPTURE -> {
+                        os.add(Manifest.permission.CAMERA); labels.add("Cámara")
+                    }
+                    PermissionRequest.RESOURCE_AUDIO_CAPTURE -> {
+                        os.add(Manifest.permission.RECORD_AUDIO); labels.add("Micrófono")
+                    }
+                }
+            }
+            if (labels.isEmpty()) {
+                // Recursos no sensibles a privacidad (DRM, MIDI): conceder sin preguntar.
+                request.grant(request.resources)
+                return
+            }
+            val origin = request.origin?.toString() ?: "Este sitio"
+            activity.runOnUiThread {
+                callbacks.onPermission(
+                    PermissionPrompt(origin, os, labels) { granted ->
+                        if (granted) request.grant(request.resources) else request.deny()
+                    }
+                )
+            }
         }
 
         override fun onShowFileChooser(
