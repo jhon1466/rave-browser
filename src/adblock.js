@@ -10,25 +10,17 @@
 
 const path = require('path');
 const fs = require('fs');
-const { app, ipcMain } = require('electron');
+const { app } = require('electron');
 const { ElectronBlocker } = require('@ghostery/adblocker-electron');
 const fetch = require('cross-fetch');
 const { shieldsAllowSet, shieldsRequestFilter } = require('./shields');
 
-// Interceptar ipcMain.handle para evitar errores al activar el adblocker
-// en múltiples sesiones (como el modo incógnito).
-const originalHandle = ipcMain.handle;
-ipcMain.handle = function(channel, listener) {
-  try {
-    originalHandle.call(ipcMain, channel, listener);
-  } catch (err) {
-    if (err && err.message && err.message.includes('Attempted to register a second handler')) {
-      console.warn(`[Rave] Handler para el canal "${channel}" ya estaba registrado. Omitiendo.`);
-    } else {
-      throw err;
-    }
-  }
-};
+// Nota: el adblocker solo registra handlers IPC globales
+// ('@ghostery/adblocker/...') cuando loadCosmeticFilters===true. Aquí va en
+// false (ver setupAdblock), por lo que activar el bloqueo en varias sesiones
+// (p. ej. incógnito) no provoca el error "second handler". Antes había aquí un
+// parche que sobrescribía ipcMain.handle globalmente para tragarse ese error;
+// se eliminó porque silenciaba doble-registros reales en toda la app.
 
 // v2: ahora cargamos las listas COMPLETAS de uBlock Origin (incluidas las que
 // neutralizan los anuncios de YouTube mediante scriptlets +js).

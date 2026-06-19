@@ -1132,8 +1132,14 @@ function installPermissions(ses) {
     state.ui.webContents.send('rave:permission-request', { id, permission, origin });
   });
   ses.setPermissionCheckHandler((wc, permission, requestingOrigin) => {
+    // fullscreen/pointerLock se conceden igual que en el request handler.
+    if (permission === 'fullscreen' || permission === 'pointerLock') return true;
+    // El resto: solo si hay una decisión guardada que lo permita. Por defecto
+    // se DENIEGA (antes devolvía true, concediendo cualquier comprobación de
+    // permiso sin consentimiento). Las solicitudes reales siguen pasando por
+    // setPermissionRequestHandler, que pregunta al usuario y guarda la decisión.
     const key = (requestingOrigin || (wc ? wc.getURL() : '')) + '|' + permission;
-    return permDecisions.has(key) ? permDecisions.get(key) : true;
+    return permDecisions.has(key) ? permDecisions.get(key) : false;
   });
 }
 
