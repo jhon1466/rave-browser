@@ -7,7 +7,7 @@
   <title>Rave</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;450;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -106,6 +106,7 @@
         <button data-act="savepdf"><span data-icon="download"></span> Guardar como PDF</button>
         <button data-act="pip"><span data-icon="layers"></span> Picture in Picture</button>
         <button data-act="update"><span data-icon="reload"></span> Buscar actualizaciones</button>
+        <button data-act="personalize"><span data-icon="palette"></span> Personalización</button>
         <button data-act="settings"><span data-icon="settings"></span> Ajustes</button>
       </div>
       <div id="split-indicator" class="hidden">
@@ -160,10 +161,10 @@
 
   <!-- Panel overlay -->
   <div id="panel" class="hidden">
-    <div id="panel-card">
+    <div id="panel-card" role="dialog" aria-modal="true" aria-labelledby="panel-title" tabindex="-1">
       <div id="panel-head">
         <span id="panel-title"></span>
-        <button id="panel-close" class="icon-btn" data-icon="close" title="Cerrar"></button>
+        <button id="panel-close" class="icon-btn" data-icon="close" title="Cerrar" aria-label="Cerrar"></button>
       </div>
       <div id="panel-body"></div>
     </div>

@@ -767,20 +767,31 @@ $('reader-btn').addEventListener('click', async () => {
 
 // ===== Sugerencias =====
 const $suggest = $('suggest');
+// Pequeño debounce reutilizable para inputs de alta frecuencia.
+function debounce(fn, ms = 120) {
+  let t;
+  return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
+}
+
 let sgItems = [], sgIndex = -1;
 function buildSuggestions(q) {
   const query = q.trim().toLowerCase(); const out = [];
-  if (query) out.push({ type: 'search', text: `Buscar "${q.trim()}"`, url: buildSearchUrl(q.trim()) });
-  if (query) {
-    const seen = new Set();
-    for (const it of [...bookmarks.map((b) => ({ ...b, type: 'bm' })), ...history.map((h) => ({ ...h, type: 'hist' }))]) {
-      if (out.length >= 8) break;
+  if (!query) return out;
+  out.push({ type: 'search', text: `Buscar "${q.trim()}"`, url: buildSearchUrl(q.trim()) });
+  // Recorre marcadores e historial SIN crear un array fusionado en cada tecla
+  // (antes hacía spread+map de ~2000 objetos por pulsación) y corta al llegar a 8.
+  const seen = new Set();
+  const scan = (arr, type) => {
+    for (const it of arr) {
+      if (out.length >= 8) return;
       if (seen.has(it.url)) continue;
       if (it.url.toLowerCase().includes(query) || (it.title || '').toLowerCase().includes(query)) {
-        seen.add(it.url); out.push({ type: it.type, text: it.title || it.url, url: it.url });
+        seen.add(it.url); out.push({ type, text: it.title || it.url, url: it.url });
       }
     }
-  }
+  };
+  scan(bookmarks, 'bm');
+  scan(history, 'hist');
   return out;
 }
 function showSuggestions() {
@@ -802,7 +813,7 @@ function hideSuggestions() { $suggest.classList.add('hidden'); updateOverlay(); 
 function highlight() { [...$suggest.children].forEach((c, i) => c.classList.toggle('active', i === sgIndex)); }
 function navigateTo(url) { hideSuggestions(); act('navigate', url); $address.blur(); }
 
-$address.addEventListener('input', showSuggestions);
+$address.addEventListener('input', debounce(showSuggestions, 90));
 $address.addEventListener('focus', () => { if ($address.value.trim()) showSuggestions(); });
 $address.addEventListener('blur', () => setTimeout(hideSuggestions, 120));
 $address.addEventListener('keydown', (e) => {
@@ -1012,8 +1023,72 @@ $('pw-save-no').addEventListener('click', () => { $pwBar.classList.add('hidden')
 
 // ===== Panel overlay =====
 const $panel = $('panel'), $panelTitle = $('panel-title'), $panelBody = $('panel-body');
-$('panel-close').addEventListener('click', () => { $panel.classList.add('hidden'); updateOverlay(); });
-$panel.addEventListener('click', (e) => { if (e.target === $panel) { $panel.classList.add('hidden'); updateOverlay(); } });
+const $panelCard = $('panel-card'), $panelHead = $('panel-head');
+
+// Foco del elemento que abrió el panel, para restaurarlo al cerrar (a11y modal).
+let panelReturnFocus = null;
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function panelFocusables() {
+  return [...$panelCard.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+}
+function closePanel() {
+  if ($panel.classList.contains('hidden')) return;
+  $panel.classList.add('hidden'); updateOverlay();
+  try { panelReturnFocus?.focus(); } catch {}
+  panelReturnFocus = null;
+}
+$('panel-close').addEventListener('click', closePanel);
+$panel.addEventListener('click', (e) => { if (e.target === $panel) closePanel(); });
+// Trampa de foco: Tab/Shift+Tab ciclan dentro del diálogo, no se escapan al fondo.
+$panel.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const f = panelFocusables();
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+// ===== Arrastrar el panel libremente por su cabecera =====
+// La tarjeta está centrada por CSS grid; aplicamos un translate como
+// desplazamiento respecto a ese centro. Se recentra en cada apertura.
+let panelPos = { x: 0, y: 0 };
+let panelDrag = null;
+function applyPanelPos() {
+  $panelCard.style.transform = (panelPos.x || panelPos.y) ? `translate(${panelPos.x}px, ${panelPos.y}px)` : '';
+}
+$panelHead.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || e.target.closest('#panel-close')) return;   // clic izq. y nunca al cerrar
+  panelDrag = { sx: e.clientX, sy: e.clientY, ox: panelPos.x, oy: panelPos.y };
+  // Cancela la animación de apertura para que el translate del arrastre no
+  // pelee con ella (y no se re-dispare al soltar, como pasaba con una clase).
+  $panelCard.style.animation = 'none';
+  $panelHead.setPointerCapture?.(e.pointerId);
+  e.preventDefault();
+});
+$panelHead.addEventListener('pointermove', (e) => {
+  if (!panelDrag) return;
+  let nx = panelDrag.ox + (e.clientX - panelDrag.sx);
+  let ny = panelDrag.oy + (e.clientY - panelDrag.sy);
+  // Acotar para que la cabecera no se salga de la ventana.
+  const margin = 24, headH = $panelHead.offsetHeight;
+  const rect = $panelCard.getBoundingClientRect();
+  const baseLeft = rect.left - panelPos.x, baseTop = rect.top - panelPos.y;
+  const minX = margin - baseLeft, maxX = window.innerWidth - margin - rect.width - baseLeft;
+  const minY = margin - baseTop,  maxY = window.innerHeight - margin - headH - baseTop;
+  nx = maxX >= minX ? Math.min(Math.max(nx, minX), maxX) : (minX + maxX) / 2;
+  ny = maxY >= minY ? Math.min(Math.max(ny, minY), maxY) : (minY + maxY) / 2;
+  panelPos = { x: nx, y: ny };
+  applyPanelPos();
+});
+const endPanelDrag = () => { panelDrag = null; };
+$panelHead.addEventListener('pointerup', endPanelDrag);
+$panelHead.addEventListener('pointercancel', endPanelDrag);
+// Doble clic en la cabecera: recentrar.
+$panelHead.addEventListener('dblclick', (e) => {
+  if (e.target.closest('#panel-close')) return;
+  panelPos = { x: 0, y: 0 }; applyPanelPos();
+});
 
 function openPanel(which) {
   const fns = {
@@ -1026,9 +1101,20 @@ function openPanel(which) {
     cookies: renderCookiesPanel,
     notes: renderNotesPanel,
     sessions: renderSessionsPanel,
+    personalize: renderPersonalizePanel,
   };
   (fns[which] || (() => {}))();
+  // Recentrar y reactivar la animación de apertura (que el arrastre pudo cancelar).
+  panelPos = { x: 0, y: 0 };
+  $panelCard.style.transform = '';
+  $panelCard.style.animation = '';
+  panelReturnFocus = document.activeElement;
   $panel.classList.remove('hidden'); updateOverlay();
+  // Mueve el foco al primer elemento de contenido del diálogo (p. ej. el
+  // buscador), evitando la X de cerrar; si no hay otro, a la X o a la tarjeta.
+  const closeBtn = $('panel-close');
+  const f = panelFocusables();
+  (f.find((el) => el !== closeBtn) || closeBtn || $panelCard).focus();
 }
 
 function listRow(item, onOpen, onDel) {
@@ -1083,37 +1169,68 @@ function renderHistoryPanel() {
     return 'Más antiguo';
   }
 
+  // Construye una fila de historial.
+  const makeRow = (e) => {
+    const row = document.createElement('div'); row.className = 'hist-entry';
+    const favicon = e.favicon ? `<img class="hist-favicon" src="${e.favicon}" onerror="this.style.display='none'">` : `<span class="hist-favicon"></span>`;
+    row.innerHTML = `${favicon}<div class="hist-info"><div class="hist-title"></div><div class="hist-url"></div></div><button class="hist-del" title="Eliminar">×</button>`;
+    row.querySelector('.hist-title').textContent = e.title || e.url;
+    row.querySelector('.hist-url').textContent = e.url;
+    row.querySelector('.hist-info').addEventListener('click', () => { act('navigate', e.url); $panel.classList.add('hidden'); updateOverlay(); });
+    row.querySelector('.hist-del').addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      await window.rave.historyDelete({ url: e.url, ts: e.ts });
+      const idx = history.findIndex(h => h.url === e.url && h.ts === e.ts);
+      if (idx !== -1) history.splice(idx, 1);
+      row.remove();
+    });
+    return row;
+  };
+
+  // Renderizado por lotes bajo demanda: en vez de pintar las ~2000 filas de
+  // golpe, pinta CHUNK filas y añade más al acercarse al final del scroll.
+  // Mantiene el render inicial barato y la memoria baja en uso normal.
+  const CHUNK = 60;
+  let histIO = null;
   const renderList = async (query = '') => {
+    if (histIO) { histIO.disconnect(); histIO = null; }
     listContainer.innerHTML = '';
     const entries = await window.rave.historySearch(query);
     if (!entries || !entries.length) { listContainer.innerHTML = '<div class="empty">' + (query ? 'Sin resultados.' : 'Historial vacío.') + '</div>'; return; }
-    let currentLabel = null;
-    entries.forEach((e) => {
-      const label = dayLabel(e.ts);
-      if (label !== currentLabel) {
-        currentLabel = label;
-        const g = document.createElement('div'); g.className = 'hist-group-label'; g.textContent = label;
-        listContainer.appendChild(g);
+
+    let rendered = 0, currentLabel = null;
+    const appendChunk = () => {
+      const end = Math.min(rendered + CHUNK, entries.length);
+      const frag = document.createDocumentFragment();
+      for (; rendered < end; rendered++) {
+        const e = entries[rendered];
+        const label = dayLabel(e.ts);
+        if (label !== currentLabel) {
+          currentLabel = label;
+          const g = document.createElement('div'); g.className = 'hist-group-label'; g.textContent = label;
+          frag.appendChild(g);
+        }
+        frag.appendChild(makeRow(e));
       }
-      const row = document.createElement('div'); row.className = 'hist-entry';
-      const favicon = e.favicon ? `<img class="hist-favicon" src="${e.favicon}" onerror="this.style.display='none'">` : `<span class="hist-favicon"></span>`;
-      row.innerHTML = `${favicon}<div class="hist-info"><div class="hist-title"></div><div class="hist-url"></div></div><button class="hist-del" title="Eliminar">×</button>`;
-      row.querySelector('.hist-title').textContent = e.title || e.url;
-      row.querySelector('.hist-url').textContent = e.url;
-      row.querySelector('.hist-info').addEventListener('click', () => { act('navigate', e.url); $panel.classList.add('hidden'); updateOverlay(); });
-      row.querySelector('.hist-del').addEventListener('click', async (ev) => {
-        ev.stopPropagation();
-        await window.rave.historyDelete({ url: e.url, ts: e.ts });
-        const idx = history.findIndex(h => h.url === e.url && h.ts === e.ts);
-        if (idx !== -1) history.splice(idx, 1);
-        row.remove();
-      });
-      listContainer.appendChild(row);
-    });
+      listContainer.appendChild(frag);
+      return rendered >= entries.length;
+    };
+
+    if (!appendChunk()) {
+      const sentinel = document.createElement('div'); sentinel.style.height = '1px';
+      listContainer.appendChild(sentinel);
+      histIO = new IntersectionObserver((obs) => {
+        if (!obs[0].isIntersecting) return;
+        const done = appendChunk();
+        listContainer.appendChild(sentinel);   // reposicionar al final
+        if (done) { histIO.disconnect(); histIO = null; sentinel.remove(); }
+      }, { root: $panelBody, rootMargin: '300px' });
+      histIO.observe(sentinel);
+    }
   };
 
   renderList();
-  $('hist-search').addEventListener('input', (e) => renderList(e.target.value));
+  $('hist-search').addEventListener('input', debounce((e) => renderList(e.target.value), 150));
 
   const a = document.createElement('div'); a.className = 'panel-actions';
   a.innerHTML = `<button class="btn ghost" id="hist-export">${ICONS.export} Exportar</button><button class="btn ghost hist-clear-btn" id="hist-clear">Borrar todo</button>`;
@@ -1743,6 +1860,138 @@ function applyTheme() {
   if (settings.theme === 'system') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', settings.theme);
 }
+
+// ===== Personalización (Theme Studio) =====
+// Sobre-escribe variables CSS inline en :root, que ganan a las del tema. Solo
+// toca el subconjunto personalizable (acento, esquinas, tipografía); bg/ink
+// siguen al tema. accent = null → revierte al acento del tema activo.
+const TZ_RADII = {
+  sharp: { '--r-xs': '0px', '--r-sm': '2px', '--r': '3px', '--r-lg': '5px', '--r-xl': '7px' },
+  soft: null,   // valores del stylesheet
+  round: { '--r-xs': '8px', '--r-sm': '12px', '--r': '16px', '--r-lg': '22px', '--r-xl': '28px' },
+};
+const TZ_FONTS = {
+  inter: null,   // valor del stylesheet
+  system: "-apple-system, 'Segoe UI', Roboto, system-ui, sans-serif",
+  serif: "'Iowan Old Style', 'Palatino Linotype', Georgia, 'Times New Roman', serif",
+  mono: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace",
+};
+const TZ_ACCENTS = [
+  { name: 'Tema', color: null },
+  { name: 'Grafito', color: '#3a3a3c' },
+  { name: 'Tinta', color: '#2d4a7c' },
+  { name: 'Acero', color: '#3f6678' },
+  { name: 'Musgo', color: '#4f6b46' },
+  { name: 'Cobre', color: '#b06a3a' },
+  { name: 'Ciruela', color: '#7a4a72' },
+  { name: 'Carmín', color: '#9a3b46' },
+];
+let customize = store.get('customize', { accent: null, radius: 'soft', font: 'inter' });
+
+function hexToRgba(hex, a) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+  return m ? `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${a})` : null;
+}
+
+function applyCustomization() {
+  const root = document.documentElement.style;
+  // Acento (y su variante translúcida para hovers/realces).
+  if (customize.accent) {
+    root.setProperty('--accent', customize.accent);
+    const pale = hexToRgba(customize.accent, 0.14);
+    if (pale) root.setProperty('--accent-pale', pale);
+  } else {
+    root.removeProperty('--accent'); root.removeProperty('--accent-pale');
+  }
+  // Esquinas.
+  const r = TZ_RADII[customize.radius] || null;
+  ['--r-xs', '--r-sm', '--r', '--r-lg', '--r-xl'].forEach((k) => {
+    if (r && r[k]) root.setProperty(k, r[k]); else root.removeProperty(k);
+  });
+  // Tipografía.
+  const f = TZ_FONTS[customize.font];
+  if (f) root.setProperty('--font', f); else root.removeProperty('--font');
+}
+function saveCustomize() { store.set('customize', customize); applyCustomization(); }
+
+function renderPersonalizePanel() {
+  $panelTitle.textContent = 'Personalización';
+  $panelBody.innerHTML = '';
+
+  const sectionEl = (title, desc) => {
+    const s = document.createElement('div'); s.className = 'tz-sec';
+    s.innerHTML = `<div class="tz-h"></div><div class="tz-d"></div>`;
+    s.querySelector('.tz-h').textContent = title;
+    s.querySelector('.tz-d').textContent = desc;
+    return s;
+  };
+  const segmentEl = (title, desc, opts, key) => {
+    const s = sectionEl(title, desc);
+    const seg = document.createElement('div'); seg.className = 'tz-seg';
+    opts.forEach(([val, label]) => {
+      const b = document.createElement('button');
+      b.className = 'tz-seg-btn' + (customize[key] === val ? ' active' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => { customize[key] = val; saveCustomize(); renderPersonalizePanel(); });
+      seg.appendChild(b);
+    });
+    s.appendChild(seg);
+    return s;
+  };
+
+  const wrap = document.createElement('div'); wrap.className = 'tz';
+
+  // Acento
+  const accSec = sectionEl('Acento', 'El único toque de color sobre el monocromo.');
+  const sw = document.createElement('div'); sw.className = 'tz-swatches';
+  TZ_ACCENTS.forEach((p) => {
+    const b = document.createElement('button');
+    b.className = 'tz-swatch' + (customize.accent === p.color ? ' active' : '');
+    b.title = p.name;
+    if (p.color === null) { b.classList.add('tz-swatch-theme'); b.innerHTML = '<span>Tema</span>'; }
+    else b.style.background = p.color;
+    b.addEventListener('click', () => { customize.accent = p.color; saveCustomize(); renderPersonalizePanel(); });
+    sw.appendChild(b);
+  });
+  const custom = document.createElement('label'); custom.className = 'tz-custom'; custom.title = 'Color personalizado';
+  const ci = document.createElement('input'); ci.type = 'color'; ci.value = customize.accent || '#3a3a3c';
+  ci.addEventListener('input', () => { customize.accent = ci.value; saveCustomize(); sw.querySelectorAll('.tz-swatch.active').forEach((e) => e.classList.remove('active')); });
+  custom.appendChild(ci);
+  sw.appendChild(custom);
+  accSec.appendChild(sw);
+  wrap.appendChild(accSec);
+
+  // Esquinas
+  wrap.appendChild(segmentEl('Esquinas', 'Define el carácter: técnico o amable.',
+    [['sharp', 'Recto'], ['soft', 'Suave'], ['round', 'Redondeado']], 'radius'));
+
+  // Tipografía
+  wrap.appendChild(segmentEl('Tipografía', 'La personalidad del texto de la interfaz.',
+    [['inter', 'Inter'], ['system', 'Sistema'], ['serif', 'Serif'], ['mono', 'Mono']], 'font'));
+
+  $panelBody.appendChild(wrap);
+
+  // Exportar / importar / restablecer
+  const foot = document.createElement('div'); foot.className = 'panel-actions';
+  foot.innerHTML = `<button class="btn ghost" id="tz-export">${ICONS.export} Exportar tema</button>
+    <label class="btn ghost" style="cursor:pointer" id="tz-import-label">${ICONS.import_} Importar<input type="file" id="tz-import" accept=".json" hidden></label>
+    <button class="btn ghost" id="tz-reset">Restablecer</button>`;
+  $panelBody.appendChild(foot);
+  $('tz-export').addEventListener('click', () => downloadJSON(customize, 'rave-theme.json'));
+  $('tz-import').addEventListener('change', async (e) => {
+    const text = await e.target.files[0]?.text(); if (!text) return;
+    try {
+      const d = JSON.parse(text);
+      customize = {
+        accent: typeof d.accent === 'string' ? d.accent : null,
+        radius: TZ_RADII[d.radius] !== undefined ? d.radius : 'soft',
+        font: TZ_FONTS[d.font] !== undefined ? d.font : 'inter',
+      };
+      saveCustomize(); renderPersonalizePanel(); toast({ name: 'Tema importado' }, 'Personalización aplicada');
+    } catch { alert('Archivo de tema inválido.'); }
+  });
+  $('tz-reset').addEventListener('click', () => { customize = { accent: null, radius: 'soft', font: 'inter' }; saveCustomize(); renderPersonalizePanel(); });
+}
 function applyAnimations() {
   document.documentElement.classList.toggle('no-anim', !settings.animations);
 }
@@ -2208,7 +2457,11 @@ window.addEventListener('keydown', (e) => {
   else if (c && (k === '+' || k === '=')) { e.preventDefault(); applyZoom(0.1); }
   else if (c && k === '-') { e.preventDefault(); applyZoom(-0.1); }
   else if (c && k === '0') { e.preventDefault(); applyZoom(0, 1); }
-  else if (k === 'escape') closeFind();
+  else if (k === 'escape') {
+    // Cierra primero el panel modal si está abierto; si no, la barra de búsqueda.
+    if (!$panel.classList.contains('hidden')) closePanel();
+    else closeFind();
+  }
 });
 
 
@@ -2229,6 +2482,7 @@ setInterval(async () => {
 
 // ===== Arranque =====
 applyTheme();
+applyCustomization();
 applyAnimations();
 applyPrivacy();
 applySleep();
@@ -2530,7 +2784,7 @@ async function renderSidebarPanel() {
       });
     };
     renderHist('');
-    $('sb-hist-search').addEventListener('input', e => renderHist(e.target.value));
+    $('sb-hist-search').addEventListener('input', debounce(e => renderHist(e.target.value), 150));
   } else if (sidebarActivePanel === 'readinglist') {
     $sidebarBody.innerHTML = `<div id="sb-rl-list"></div>`;
     const renderRL = async () => {
